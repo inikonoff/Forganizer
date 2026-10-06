@@ -1,0 +1,130 @@
+"""Model calls with retry on invalid JSON and fallback across the configured model list."""
+from __future__ import annotations
+
+import json
+import logging
+import re
+import time
+from pathlib import Path
+from typing import Awaitable, Callable, Optional
+
+import httpx
+from pydantic import ValidationError
+
+from .config import PROVIDER_URLS, ModelSpec, Settings
+from .schemas import PlanOut, PlanRequest
+
+log = logging.getLogger("forganizer")
+
+SYSTEM_PROMPT = (Path(__file__).parent / "prompt.txt").read_text(encoding="utf-8")
+
+# (spec, messages, json_mode) -> raw text of the model answer
+Completion = Callable[[ModelSpec, list[dict], bool], Awaitable[str]]
+
+
+class AllModelsFailed(Exception):
+    pass
+
+
+class ProviderError(Exception):
+    pass
+
+
+class InvalidAnswer(Exception):
+    pass
+
+
+_FENCE = re.compile(r"^```(?:json)?\s*|\s*```$", re.IGNORECASE)
+
+
+def parse_answer(text: str, phase: int) -> PlanOut:
+    """Parses and checks the model answer structure. Content rules are enforced on the device."""
+    t = _FENCE.sub("", text.strip())
+    if not t.startswith("{"):
+        start, end = t.find("{"), t.rfind("}")
+        if start < 0 or end <= start:
+            raise InvalidAnswer("ответ не содержит JSON-объекта")
+        t = t[start : end + 1]
+    try:
+        data = json.loads(t)
+    except json.JSONDecodeError as e:
+        raise InvalidAnswer(f"невалидный JSON: {e.msg} (позиция {e.pos})") from e
+    if not isinstance(data, dict):
+        raise InvalidAnswer("корень ответа должен быть объектом")
+    try:
+        plan = PlanOut.model_validate(data)
+    except ValidationError as e:
+        first = e.errors()[0]
+        loc = ".".join(str(p) for p in first["loc"])
+        raise InvalidAnswer(f"неверная структура: {loc}: {first['msg']}") from e
+    if phase == 1:
+        plan.assignments = []
+        plan.leave = []
+    return plan
+
+
+class Planner:
+    def __init__(self, settings: Settings, completion: Optional[Completion] = None):
+        self.settings = settings
+        self.completion = completion or self._http_completion
+        self._client: Optional[httpx.AsyncClient] = None
+
+    async def close(self) -> None:
+        if self._client:
+            await self._client.aclose()
+
+    async def plan(self, req: PlanRequest) -> tuple[PlanOut, str]:
+        user = json.dumps(req.model_dump(), ensure_ascii=False)
+        messages = [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": user},
+        ]
+        for spec in self.settings.models:
+            if not self.settings.api_keys.get(spec.provider) and self.completion == self._http_completion:
+                continue
+            attempt_messages = messages
+            for attempt in range(2):
+                started = time.monotonic()
+                try:
+                    text = await self.completion(spec, attempt_messages, True)
+                    plan = parse_answer(text, req.phase)
+                    log.info("model=%s attempt=%d ok ms=%d", spec.model, attempt, (time.monotonic() - started) * 1000)
+                    return plan, spec.model
+                except InvalidAnswer as e:
+                    log.info("model=%s attempt=%d invalid_json ms=%d", spec.model, attempt, (time.monotonic() - started) * 1000)
+                    attempt_messages = messages + [
+                        {"role": "assistant", "content": "(предыдущий ответ отклонён)"},
+                        {
+                            "role": "user",
+                            "content": f"Ответ отклонён: {e}. Верни только валидный JSON в требуемом формате.",
+                        },
+                    ]
+                except (ProviderError, httpx.HTTPError) as e:
+                    log.info("model=%s provider_error=%s", spec.model, type(e).__name__)
+                    break
+        raise AllModelsFailed()
+
+    async def _http_completion(self, spec: ModelSpec, messages: list[dict], json_mode: bool) -> str:
+        if self._client is None:
+            self._client = httpx.AsyncClient(timeout=self.settings.model_timeout)
+        body: dict = {
+            "model": spec.model,
+            "messages": messages,
+            "temperature": self.settings.temperature,
+        }
+        if json_mode:
+            body["response_format"] = {"type": "json_object"}
+        headers = {"Authorization": f"Bearer {self.settings.api_keys.get(spec.provider, '')}"}
+        if spec.provider == "openrouter":
+            headers["X-Title"] = "Forganizer"
+        r = await self._client.post(PROVIDER_URLS[spec.provider], json=body, headers=headers)
+        if r.status_code == 400 and json_mode:
+            # Some free models reject response_format; retry once without it.
+            body.pop("response_format", None)
+            r = await self._client.post(PROVIDER_URLS[spec.provider], json=body, headers=headers)
+        if r.status_code != 200:
+            raise ProviderError(f"status {r.status_code}")
+        try:
+            return r.json()["choices"][0]["message"]["content"] or ""
+        except (KeyError, IndexError, TypeError, ValueError) as e:
+            raise ProviderError("bad provider payload") from e
