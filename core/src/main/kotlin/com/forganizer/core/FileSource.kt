@@ -1,10 +1,12 @@
 package com.forganizer.core
 
+import kotlinx.serialization.Serializable
 import java.io.InputStream
 
 /** Opaque reference to a directory or file: a path or a content URI. */
 data class NodeRef(val id: String)
 
+@Serializable
 data class FileNode(
     val id: String,        // opaque: path or URI
     val name: String,

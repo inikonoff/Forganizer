@@ -16,7 +16,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.Button
@@ -40,6 +39,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -47,11 +47,19 @@ import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.material3.CircularProgressIndicator
+import java.text.DateFormat
+import java.util.Date
 import com.forganizer.core.FolderNames
 import com.forganizer.core.PlanFolder
 import com.forganizer.core.PlanItem
 
 private sealed interface Dialog {
+    data object Versions : Dialog
+    data object Save : Dialog
     data class Rename(val folder: String) : Dialog
     data class Move(val title: String, val ids: Set<String>, val from: String) : Dialog
 }
@@ -80,8 +88,12 @@ fun PictureScreen(vm: MainViewModel, state: UiState) {
         "Картина папки",
         onBack = vm::back,
         actions = {
-            IconButton(onClick = { exportMenu = true }) { Icon(Icons.Default.Share, contentDescription = "Экспорт") }
+            IconButton(onClick = { exportMenu = true }) { Icon(Icons.Default.MoreVert, contentDescription = "Меню") }
             DropdownMenu(expanded = exportMenu, onDismissRequest = { exportMenu = false }) {
+                DropdownMenuItem(text = { Text("Версии плана (${state.versions.size})") }, onClick = {
+                    exportMenu = false; dialog = Dialog.Versions
+                })
+                HorizontalDivider()
                 DropdownMenuItem(text = { Text("Поделиться JSON") }, onClick = {
                     exportMenu = false; ExportHelper.share(context, "forganizer-plan.json", "application/json", vm.exportJson())
                 })
@@ -98,12 +110,14 @@ fun PictureScreen(vm: MainViewModel, state: UiState) {
         },
         bottomBar = {
             BottomAppBar {
-                Text(
-                    "Выбрано: $checked из ${plan.items.size}",
-                    modifier = Modifier.weight(1f).padding(start = 16.dp),
-                )
+                Column(Modifier.weight(1f).padding(start = 16.dp)) {
+                    Text("Выбрано: $checked из ${plan.items.size}")
+                }
+                OutlinedButton(onClick = { dialog = Dialog.Save }, modifier = Modifier.padding(end = 8.dp)) {
+                    Text("Сохранить схему")
+                }
                 Button(onClick = vm::openPreview, enabled = checked > 0, modifier = Modifier.padding(end = 16.dp)) {
-                    Text("Предпросмотр")
+                    Text("Forganize")
                 }
             }
         },
@@ -125,6 +139,7 @@ fun PictureScreen(vm: MainViewModel, state: UiState) {
                     state.aiNote?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 }
             }
+            item(key = "refine") { RefineBox(vm, state) }
             for (folder in plan.folders) {
                 item(key = "folder:" + folder.name) {
                     FolderCard(
@@ -142,6 +157,8 @@ fun PictureScreen(vm: MainViewModel, state: UiState) {
     }
 
     when (val d = dialog) {
+        Dialog.Versions -> VersionsDialog(state.versions, onDismiss = { dialog = null }) { vm.rollback(it); dialog = null }
+        Dialog.Save -> SaveDialog(state.rootLabel, onDismiss = { dialog = null }) { vm.saveScheme(it); dialog = null }
         is Dialog.Rename -> RenameDialog(d.folder, onDismiss = { dialog = null }) { if (vm.renameFolder(d.folder, it)) dialog = null }
         is Dialog.Move -> MoveDialog(d.title, plan.folders.filter { FolderNames.key(it.name) != FolderNames.key(d.from) }, onDismiss = { dialog = null }) {
             vm.moveFiles(d.ids, it); dialog = null
@@ -206,13 +223,14 @@ private fun FileRow(item: PlanItem, indent: Int, onCheck: (Set<String>, Boolean)
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onCheck(setOf(item.file.id), !item.checked) }
+            .clickable(enabled = item.stale == null) { onCheck(setOf(item.file.id), !item.checked) }
             .padding(start = (8 + indent).dp, end = 12.dp),
     ) {
-        Checkbox(checked = item.checked, onCheckedChange = { onCheck(setOf(item.file.id), it) })
+        Checkbox(checked = item.checked, enabled = item.stale == null, onCheckedChange = { onCheck(setOf(item.file.id), it) })
         Column(Modifier.weight(1f)) {
             Text(item.file.name, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            if (item.reason.isNotEmpty()) Hint(item.reason)
+            if (item.stale != null) Hint("Устарело: ${item.stale}", color = MaterialTheme.colorScheme.error)
+            else if (item.reason.isNotEmpty()) Hint(item.reason)
         }
         ConfidenceBadge(item.confidence)
     }
@@ -307,7 +325,7 @@ fun PreviewScreen(vm: MainViewModel, state: UiState) {
     val p = state.preview ?: return
     val skippedByConflict = p.rows.count { it.finalName == null }
     ScreenScaffold(
-        "Предпросмотр",
+        "Предпросмотр: Forganize",
         onBack = vm::back,
         bottomBar = {
             BottomAppBar {
@@ -395,5 +413,232 @@ fun ApplyScreen(vm: MainViewModel, state: UiState) {
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun RefineBox(vm: MainViewModel, state: UiState) {
+    val r = state.refine
+    var text by remember { mutableStateOf("") }
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            SectionTitle("Что поправить?")
+            OutlinedTextField(
+                value = text,
+                onValueChange = { text = it.take(500) },
+                placeholder = { Text("Например: все PDF в Документы, а скриншоты отдельно") },
+                enabled = !r.running && state.refinesLeft > 0,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                keyboardActions = KeyboardActions(onSend = { vm.refine(text) }),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Hint(
+                    if (state.refinesLeft > 0) "Осталось правок ИИ: ${state.refinesLeft}. Ваши ручные решения ИИ не меняет."
+                    else "Лимит правок ИИ исчерпан, правьте план вручную.",
+                    modifier = Modifier.weight(1f),
+                )
+                if (r.running) CircularProgressIndicator(Modifier.padding(4.dp))
+                else Button(
+                    onClick = { vm.refine(text) },
+                    enabled = text.isNotBlank() && state.refinesLeft > 0,
+                ) { Text("Отправить") }
+            }
+        }
+    }
+}
+
+@Composable
+private fun VersionsDialog(versions: List<VersionInfo>, onDismiss: () -> Unit, onRollback: (Int) -> Unit) {
+    val fmt = remember { DateFormat.getTimeInstance(DateFormat.SHORT) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Версии плана") },
+        text = {
+            LazyColumn {
+                items(versions.reversed(), key = { it.number }) { v ->
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                        Column(Modifier.weight(1f)) {
+                            Text("${v.number}. ${v.label}", maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            Hint(fmt.format(Date(v.time)))
+                        }
+                        if (v.number != versions.last().number) {
+                            TextButton(onClick = { onRollback(v.number) }) { Text("Откатить") }
+                        } else Hint("текущая")
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Закрыть") } },
+    )
+}
+
+@Composable
+private fun SaveDialog(default: String, onDismiss: () -> Unit, onSave: (String) -> Unit) {
+    val stamp = remember { DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date()) }
+    var name by remember { mutableStateOf("$default, $stamp") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Сохранить схему") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                OutlinedTextField(value = name, onValueChange = { name = it.take(60) }, singleLine = true, label = { Text("Название") })
+                Hint("Схему можно открыть позже. Файлы, которые к тому времени исчезнут или изменятся, будут помечены и исключены. Экспорт в JSON или список доступен в меню.")
+            }
+        },
+        confirmButton = { TextButton(onClick = { onSave(name) }) { Text("Сохранить") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },
+    )
+}
+
+@Composable
+fun RefineDiffScreen(vm: MainViewModel, state: UiState) {
+    val r = state.refine
+    val result = r.result ?: return
+    var confirmBig by remember(result) { mutableStateOf(false) }
+    val needConfirm = result.bigOps.isNotEmpty()
+    val oldFolder = remember(result) {
+        result.before.items.associate { it.file.id to it.folder }
+    }
+    val names = remember(result) {
+        (result.plan.items.map { it.file } + result.plan.leave.map { it.file }).associate { it.id to it.name }
+    }
+    ScreenScaffold(
+        "Правка ИИ",
+        onBack = vm::rejectRefine,
+        bottomBar = {
+            BottomAppBar {
+                OutlinedButton(onClick = vm::rejectRefine, modifier = Modifier.padding(start = 16.dp)) { Text("Отклонить") }
+                Column(Modifier.weight(1f)) {}
+                Button(
+                    onClick = vm::acceptRefine,
+                    enabled = !needConfirm || confirmBig,
+                    modifier = Modifier.padding(end = 16.dp),
+                ) { Text("Принять") }
+            }
+        },
+    ) { padding ->
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(
+                start = 16.dp, end = 16.dp,
+                top = padding.calculateTopPadding() + 8.dp,
+                bottom = padding.calculateBottomPadding() + 8.dp,
+            ),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Hint("Ваша инструкция")
+                    Text(r.instruction, style = MaterialTheme.typography.titleMedium)
+                    if (r.note.isNotEmpty()) Text(r.note, color = MaterialTheme.colorScheme.primary)
+                }
+            }
+            item {
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        SectionTitle("Что изменится")
+                        Text("Переедет файлов: ${result.movedFiles}")
+                        if (result.createdFolders.isNotEmpty()) Text("Новые папки: ${result.createdFolders.joinToString()}")
+                        if (result.renamedFolders.isNotEmpty()) {
+                            Text("Переименование: " + result.renamedFolders.entries.joinToString { "${it.key} → ${it.value}" })
+                        }
+                        if (result.touchedFolders.isNotEmpty()) Hint("Затронуты папки: ${result.touchedFolders.joinToString()}")
+                        Hint("План изменится только после «Принять».")
+                    }
+                }
+            }
+            if (needConfirm) {
+                item {
+                    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
+                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            SectionTitle("Крупная правка")
+                            result.bigOps.forEach { Text(it) }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Checkbox(checked = confirmBig, onCheckedChange = { confirmBig = it })
+                                Text("Понимаю, правка затрагивает больше половины файлов")
+                            }
+                        }
+                    }
+                }
+            }
+            if (result.applied.isNotEmpty()) {
+                item { SectionTitle("Операции") }
+                items(result.applied) { Text("• $it") }
+            }
+            if (result.skipped.isNotEmpty()) {
+                item { SectionTitle("Не выполнено") }
+                items(result.skipped) { Hint("• $it") }
+            }
+            if (result.changedFiles.isNotEmpty()) {
+                item { SectionTitle("Файлы (${result.changedFiles.size})") }
+                items(result.changedFiles.entries.take(300).toList(), key = { it.key }) { (id, to) ->
+                    Column {
+                        Text(names[id] ?: id, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Hint("${oldFolder[id] ?: "Не определено"} → ${to ?: "Не определено"}")
+                    }
+                }
+                if (result.changedFiles.size > 300) item { Hint("…и ещё ${result.changedFiles.size - 300}") }
+            }
+        }
+    }
+}
+
+@Composable
+fun SavedScreen(vm: MainViewModel, state: UiState) {
+    val context = LocalContext.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    var confirmDelete by remember { mutableStateOf<com.forganizer.app.data.SavedPlanInfo?>(null) }
+    val fmt = remember { DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT) }
+    ScreenScaffold("Сохранённые схемы", onBack = vm::back) { padding ->
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(
+                start = 16.dp, end = 16.dp,
+                top = padding.calculateTopPadding() + 8.dp,
+                bottom = padding.calculateBottomPadding() + 8.dp,
+            ),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            if (state.savedPlans.isEmpty()) item { Text("Сохранённых схем пока нет. Сохраните план на экране «Картина папки».") }
+            items(state.savedPlans, key = { it.id }) { p ->
+                var menu by remember { mutableStateOf(false) }
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(p.name, style = MaterialTheme.typography.titleMedium)
+                        Hint(com.forganizer.app.fs.Access.label(p.rootId) + " · " + fmt.format(Date(p.time)))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Button(onClick = { vm.openSaved(p) }) { Text("Открыть") }
+                            Column(Modifier.weight(1f)) {}
+                            IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, contentDescription = "Ещё") }
+                            DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                                DropdownMenuItem(text = { Text("Поделиться JSON") }, onClick = {
+                                    menu = false
+                                    scope.launch {
+                                        vm.savedExport(p, json = true)?.let { ExportHelper.share(context, "forganizer-plan.json", "application/json", it) }
+                                    }
+                                })
+                                DropdownMenuItem(text = { Text("Поделиться списком") }, onClick = {
+                                    menu = false
+                                    scope.launch {
+                                        vm.savedExport(p, json = false)?.let { ExportHelper.share(context, "forganizer-plan.txt", "text/plain", it) }
+                                    }
+                                })
+                                DropdownMenuItem(text = { Text("Удалить схему") }, onClick = { menu = false; confirmDelete = p })
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    confirmDelete?.let { p ->
+        AlertDialog(
+            onDismissRequest = { confirmDelete = null },
+            title = { Text("Удалить схему?") },
+            text = { Text("Удаляется только сохранённая схема «${p.name}» в приложении. Файлы не затрагиваются.") },
+            confirmButton = { TextButton(onClick = { confirmDelete = null; vm.deleteSaved(p) }) { Text("Удалить") } },
+            dismissButton = { TextButton(onClick = { confirmDelete = null }) { Text("Отмена") } },
+        )
     }
 }

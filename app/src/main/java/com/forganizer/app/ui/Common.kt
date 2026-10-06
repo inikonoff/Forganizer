@@ -93,8 +93,8 @@ fun ConfidenceBadge(confidence: Double) {
 }
 
 @Composable
-fun Hint(text: String, color: Color = MaterialTheme.colorScheme.onSurfaceVariant) {
-    Text(text, style = MaterialTheme.typography.bodySmall, color = color)
+fun Hint(text: String, modifier: Modifier = Modifier, color: Color = MaterialTheme.colorScheme.onSurfaceVariant) {
+    Text(text, style = MaterialTheme.typography.bodySmall, color = color, modifier = modifier)
 }
 
 fun formatSize(bytes: Long): String = when {

@@ -52,6 +52,8 @@ fun App(vm: MainViewModel) {
         Screen.FOLDER -> FolderScreen(vm, state)
         Screen.SCAN -> ScanScreen(vm, state)
         Screen.PICTURE -> PictureScreen(vm, state)
+        Screen.REFINE_DIFF -> RefineDiffScreen(vm, state)
+        Screen.SAVED -> SavedScreen(vm, state)
         Screen.PREVIEW -> PreviewScreen(vm, state)
         Screen.APPLY -> ApplyScreen(vm, state)
         Screen.JOURNAL -> JournalScreen(vm, state)
@@ -147,6 +149,7 @@ private fun FolderScreen(vm: MainViewModel, state: UiState) {
         },
     ) { padding ->
         ScrollColumn(padding) {
+            OutlinedButton(onClick = vm::openSavedList, modifier = Modifier.fillMaxWidth()) { Text("Сохранённые схемы") }
             if (state.mode == Mode.FULL) {
                 Text("Какую папку разобрать?")
                 for (f in Access.standardFolders()) {

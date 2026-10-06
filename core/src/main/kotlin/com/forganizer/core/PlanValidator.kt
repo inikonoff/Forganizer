@@ -1,5 +1,8 @@
 package com.forganizer.core
 
+import kotlinx.serialization.Serializable
+
+@Serializable
 data class PlanFolder(val name: String, val desc: String, val existing: Boolean = false)
 
 data class PlanAssignment(

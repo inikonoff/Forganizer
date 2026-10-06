@@ -70,5 +70,47 @@ interface PlanApi {
     suspend fun plan(request: PlanRequest): RawPlan
 }
 
+/** Transport to the /refine endpoint. */
+interface RefineApi {
+    suspend fun refine(request: RefineRequest): RawPatch
+}
+
+@Serializable
+data class FolderSummaryDto(
+    val name: String,
+    val count: Int,
+    val exts: Map<String, Int>,
+    val bundles: List<String>,
+)
+
+@Serializable
+data class LeaveSummaryDto(val count: Int, val exts: Map<String, Int>)
+
+@Serializable
+data class PinDto(
+    val kind: String,
+    val name: String? = null,
+    val ref: String? = null,
+    val folder: String? = null,
+)
+
+@Serializable
+data class RefineRequest(
+    val instruction: String,
+    @SerialName("existing_folders") val existingFolders: List<String>,
+    @SerialName("allow_existing") val allowExisting: Boolean,
+    val folders: List<FolderSummaryDto>,
+    val leave: LeaveSummaryDto,
+    val pinned: List<PinDto>,
+    val history: List<String>,
+)
+
+/** Raw patch as returned by the server; every op is re-checked on the device. */
+@Serializable
+data class RawPatch(
+    val ops: List<kotlinx.serialization.json.JsonObject> = emptyList(),
+    val note: String = "",
+)
+
 class AiUnavailableException(message: String) : Exception(message)
 class AiRequestException(val code: Int, message: String) : Exception(message)

@@ -6,17 +6,20 @@ import logging
 import re
 import time
 from pathlib import Path
-from typing import Awaitable, Callable, Optional
+from typing import Awaitable, Callable, Optional, TypeVar
 
 import httpx
 from pydantic import ValidationError
 
 from .config import PROVIDER_URLS, ModelSpec, Settings
-from .schemas import PlanOut, PlanRequest
+from .schemas import PlanOut, PlanRequest, RefineOut, RefineRequest
 
 log = logging.getLogger("forganizer")
 
 SYSTEM_PROMPT = (Path(__file__).parent / "prompt.txt").read_text(encoding="utf-8")
+REFINE_PROMPT = (Path(__file__).parent / "prompt_refine.txt").read_text(encoding="utf-8")
+
+T = TypeVar("T")
 
 # (spec, messages, json_mode) -> raw text of the model answer
 Completion = Callable[[ModelSpec, list[dict], bool], Awaitable[str]]
@@ -37,8 +40,7 @@ class InvalidAnswer(Exception):
 _FENCE = re.compile(r"^```(?:json)?\s*|\s*```$", re.IGNORECASE)
 
 
-def parse_answer(text: str, phase: int) -> PlanOut:
-    """Parses and checks the model answer structure. Content rules are enforced on the device."""
+def _extract_json(text: str) -> dict:
     t = _FENCE.sub("", text.strip())
     if not t.startswith("{"):
         start, end = t.find("{"), t.rfind("}")
@@ -51,16 +53,35 @@ def parse_answer(text: str, phase: int) -> PlanOut:
         raise InvalidAnswer(f"невалидный JSON: {e.msg} (позиция {e.pos})") from e
     if not isinstance(data, dict):
         raise InvalidAnswer("корень ответа должен быть объектом")
+    return data
+
+
+def _schema_error(e: ValidationError) -> InvalidAnswer:
+    first = e.errors()[0]
+    loc = ".".join(str(p) for p in first["loc"])
+    return InvalidAnswer(f"неверная структура: {loc}: {first['msg']}")
+
+
+def parse_answer(text: str, phase: int) -> PlanOut:
+    """Parses and checks the model answer structure. Content rules are enforced on the device."""
+    data = _extract_json(text)
     try:
         plan = PlanOut.model_validate(data)
     except ValidationError as e:
-        first = e.errors()[0]
-        loc = ".".join(str(p) for p in first["loc"])
-        raise InvalidAnswer(f"неверная структура: {loc}: {first['msg']}") from e
+        raise _schema_error(e) from e
     if phase == 1:
         plan.assignments = []
         plan.leave = []
     return plan
+
+
+def parse_refine(text: str) -> RefineOut:
+    """Strict patch schema: only the six known operations, at most 20 of them."""
+    data = _extract_json(text)
+    try:
+        return RefineOut.model_validate(data)
+    except ValidationError as e:
+        raise _schema_error(e) from e
 
 
 class Planner:
@@ -75,8 +96,15 @@ class Planner:
 
     async def plan(self, req: PlanRequest) -> tuple[PlanOut, str]:
         user = json.dumps(req.model_dump(), ensure_ascii=False)
+        return await self._run(SYSTEM_PROMPT, user, lambda text: parse_answer(text, req.phase))
+
+    async def refine(self, req: RefineRequest) -> tuple[RefineOut, str]:
+        user = json.dumps(req.model_dump(exclude_none=True), ensure_ascii=False)
+        return await self._run(REFINE_PROMPT, user, parse_refine)
+
+    async def _run(self, system: str, user: str, parse: Callable[[str], T]) -> tuple[T, str]:
         messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": system},
             {"role": "user", "content": user},
         ]
         for spec in self.settings.models:
@@ -87,9 +115,9 @@ class Planner:
                 started = time.monotonic()
                 try:
                     text = await self.completion(spec, attempt_messages, True)
-                    plan = parse_answer(text, req.phase)
+                    result = parse(text)
                     log.info("model=%s attempt=%d ok ms=%d", spec.model, attempt, (time.monotonic() - started) * 1000)
-                    return plan, spec.model
+                    return result, spec.model
                 except InvalidAnswer as e:
                     log.info("model=%s attempt=%d invalid_json ms=%d", spec.model, attempt, (time.monotonic() - started) * 1000)
                     attempt_messages = messages + [

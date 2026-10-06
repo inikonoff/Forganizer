@@ -1,20 +1,30 @@
 package com.forganizer.core
 
+import kotlinx.serialization.Serializable
+
+@Serializable
 enum class ItemSource { LOCAL, AI }
 
+@Serializable
 data class PlanItem(
     val file: FileNode,
+    /** Id of the summary object (fN / cN) or of a locally resolved file (aN); used by AI selectors. */
+    val ref: String,
     val folder: String,
     val bundle: String?,
     val reason: String,
     val confidence: Double,
     val source: ItemSource,
     val checked: Boolean,
+    /** Set when a saved scheme is reopened and the file is gone or changed; never applied. */
+    val stale: String? = null,
 )
 
-data class LeaveItem(val file: FileNode, val reason: String)
+@Serializable
+data class LeaveItem(val file: FileNode, val ref: String, val reason: String)
 
 /** The editable plan shown on the "folder picture" screen. Folder names are unique case-insensitively. */
+@Serializable
 data class OrganizePlan(
     val folders: List<PlanFolder>,
     val items: List<PlanItem>,
@@ -22,10 +32,16 @@ data class OrganizePlan(
     val existingFolders: List<String>,
 ) {
     fun itemsIn(folder: String) = items.filter { FolderNames.key(it.folder) == FolderNames.key(folder) }
-    val checkedItems: List<PlanItem> get() = items.filter { it.checked }
+    val checkedItems: List<PlanItem> get() = items.filter { it.checked && it.stale == null }
+    val staleCount: Int get() = items.count { it.stale != null }
 
     fun setChecked(fileIds: Set<String>, checked: Boolean) =
-        copy(items = items.map { if (it.file.id in fileIds) it.copy(checked = checked) else it })
+        copy(items = items.map { if (it.file.id in fileIds && it.stale == null) it.copy(checked = checked) else it })
+
+    /** Marks items whose files are gone or changed; they are unchecked and excluded from applying. */
+    fun markStale(reasons: Map<String, String>) = copy(
+        items = items.map { r -> reasons[r.file.id]?.let { r.copy(stale = it, checked = false) } ?: r },
+    )
 
     /** Renames a new (not existing) folder. Returns null if the name is invalid or already taken. */
     fun renameFolder(old: String, newRaw: String): OrganizePlan? {
@@ -68,26 +84,27 @@ data class OrganizePlan(
             val items = mutableListOf<PlanItem>()
             val leave = mutableListOf<LeaveItem>()
 
-            for (l in summary.local) {
+            summary.local.forEachIndexed { i, l ->
+                val ref = "a${i + 1}"
                 val ex = existingByKey[FolderNames.key(l.folder)]
                 if (ex != null && !allowExisting) {
-                    leave += LeaveItem(l.file, Reasons.EXISTING_FORBIDDEN); continue
+                    leave += LeaveItem(l.file, ref, Reasons.EXISTING_FORBIDDEN); return@forEachIndexed
                 }
                 val name = ex ?: l.folder
                 folders.putIfAbsent(FolderNames.key(name), PlanFolder(name, if (ex != null) "" else "Определено по расширению", existing = ex != null))
-                items += PlanItem(l.file, name, null, l.reason, 1.0, ItemSource.LOCAL, checked = true)
+                items += PlanItem(l.file, ref, name, null, l.reason, 1.0, ItemSource.LOCAL, checked = true)
             }
             ai.folders.forEach { folders.putIfAbsent(FolderNames.key(it.name), it) }
             for (a in ai.assignments) {
                 val obj = summary.byId[a.ref] ?: continue
                 val folder = folders[FolderNames.key(a.folder)]?.name ?: a.folder
                 obj.members.forEach {
-                    items += PlanItem(it, folder, a.bundle, a.reason, a.confidence, ItemSource.AI, a.confidence >= DEFAULT_CHECK_THRESHOLD)
+                    items += PlanItem(it, a.ref, folder, a.bundle, a.reason, a.confidence, ItemSource.AI, a.confidence >= DEFAULT_CHECK_THRESHOLD)
                 }
             }
             for (l in ai.leave) {
                 val obj = summary.byId[l.ref] ?: continue
-                obj.members.forEach { leave += LeaveItem(it, l.reason) }
+                obj.members.forEach { leave += LeaveItem(it, l.ref, l.reason) }
             }
             val used = items.map { FolderNames.key(it.folder) }.toSet()
             return OrganizePlan(folders.values.filter { FolderNames.key(it.name) in used }, items, leave, existingFolders)

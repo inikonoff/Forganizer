@@ -7,6 +7,10 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.forganizer.app.ForganizerApp
 import com.forganizer.app.data.AppSettings
+import com.forganizer.app.data.PinnedDecisionEntity
+import com.forganizer.app.data.PlanVersionEntity
+import com.forganizer.app.data.SavedPlanEntity
+import com.forganizer.app.data.SavedPlanInfo
 import com.forganizer.app.data.SessionSummary
 import com.forganizer.app.fs.Access
 import com.forganizer.app.fs.FileBackend
@@ -28,7 +32,15 @@ import com.forganizer.core.MoveOp
 import com.forganizer.core.NameConflict
 import com.forganizer.core.NodeRef
 import com.forganizer.core.OrganizePlan
+import com.forganizer.core.PatchResult
 import com.forganizer.core.PlanExport
+import com.forganizer.core.PlanSession
+import com.forganizer.core.PlanSnapshot
+import com.forganizer.core.PlanVersion
+import com.forganizer.core.ProtocolJson
+import com.forganizer.core.RefineLimitException
+import com.forganizer.core.Staleness
+import com.forganizer.core.Text
 import com.forganizer.core.PlanItem
 import com.forganizer.core.PlanLeave
 import com.forganizer.core.ScanResult
@@ -51,7 +63,7 @@ import java.io.File
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 
-enum class Screen { LOADING, CONSENT, ACCESS, FOLDER, SCAN, PICTURE, PREVIEW, APPLY, JOURNAL, SETTINGS }
+enum class Screen { LOADING, CONSENT, ACCESS, FOLDER, SCAN, PICTURE, REFINE_DIFF, SAVED, PREVIEW, APPLY, JOURNAL, SETTINGS }
 enum class Mode { FULL, SAF }
 
 data class ScanStats(
@@ -75,6 +87,15 @@ data class ApplyState(
     val report: ApplyReport? = null,
 )
 
+data class RefineState(
+    val running: Boolean = false,
+    val instruction: String = "",
+    val result: PatchResult? = null,
+    val note: String = "",
+)
+
+data class VersionInfo(val number: Int, val label: String, val time: Long)
+
 data class UiState(
     val screen: Screen = Screen.LOADING,
     val settings: AppSettings = AppSettings(),
@@ -85,6 +106,12 @@ data class UiState(
     val scanError: String? = null,
     val plan: OrganizePlan? = null,
     val aiNote: String? = null,
+    val refine: RefineState = RefineState(),
+    val refinesLeft: Int = PlanSession.MAX_REFINES,
+    val versions: List<VersionInfo> = emptyList(),
+    val savedPlans: List<SavedPlanInfo> = emptyList(),
+    /** Set when the plan was reopened from a saved scheme (no fresh scan / duplicates). */
+    val fromSaved: Boolean = false,
     val duplicates: List<List<FileNode>> = emptyList(),
     val preview: PreviewData? = null,
     val apply: ApplyState = ApplyState(),
@@ -103,6 +130,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var root: NodeRef? = null
     private var scan: ScanResult? = null
     private var summary: Summary? = null
+    private var session: PlanSession? = null
+    private var planId: String = UUID.randomUUID().toString()
     private var job: Job? = null
     private val stopFlag = AtomicBoolean(false)
     private var returnTo: Screen = Screen.FOLDER
@@ -185,7 +214,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun openAccess() = _state.update { it.copy(screen = Screen.ACCESS) }
 
     fun canGoBack(): Boolean = when (_state.value.screen) {
-        Screen.SCAN, Screen.PICTURE, Screen.PREVIEW, Screen.JOURNAL, Screen.SETTINGS -> true
+        Screen.SCAN, Screen.PICTURE, Screen.PREVIEW, Screen.JOURNAL, Screen.SETTINGS, Screen.SAVED -> true
+        Screen.REFINE_DIFF -> true
         Screen.APPLY -> !_state.value.apply.running
         Screen.ACCESS -> _state.value.mode != null
         else -> false
@@ -197,8 +227,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             Screen.SCAN -> { job?.cancel(); Screen.FOLDER }
             Screen.PICTURE -> Screen.FOLDER
             Screen.PREVIEW -> Screen.PICTURE
+            Screen.REFINE_DIFF -> { rejectRefine(); return }
             Screen.APPLY -> if (s.apply.running) return else Screen.FOLDER
-            Screen.JOURNAL, Screen.SETTINGS -> returnTo.takeIf { it != Screen.JOURNAL && it != Screen.SETTINGS } ?: Screen.FOLDER
+            Screen.JOURNAL, Screen.SETTINGS, Screen.SAVED ->
+                returnTo.takeIf { it != Screen.JOURNAL && it != Screen.SETTINGS && it != Screen.SAVED } ?: Screen.FOLDER
             Screen.ACCESS -> if (s.mode != null) Screen.FOLDER else return
             else -> return
         }
@@ -295,32 +327,204 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun showPlan(plan: OrganizePlan, aiEmpty: Boolean) {
+        val s = PlanSession(plan, _state.value.settings.allowExisting)
+        session = s
+        planId = UUID.randomUUID().toString()
+        persistVersion(s.versions.last(), "")
         _state.update {
             it.copy(
-                screen = Screen.PICTURE, plan = plan, scanError = null,
+                screen = Screen.PICTURE, scanError = null, fromSaved = false, refine = RefineState(),
                 aiNote = if (aiEmpty) "Не нашлось уверенных рекомендаций" else null,
+            )
+        }
+        publish()
+    }
+
+    private fun publish() {
+        val s = session ?: return
+        _state.update {
+            it.copy(
+                plan = s.plan,
+                refinesLeft = s.refinesLeft,
+                versions = s.versions.map { v -> VersionInfo(v.number, v.label, v.time) },
             )
         }
     }
 
-    // --- plan editing ---------------------------------------------------------------------------
-
-    private fun editPlan(f: (OrganizePlan) -> OrganizePlan?) : Boolean {
-        val p = _state.value.plan ?: return false
-        val n = f(p) ?: return false
-        _state.update { it.copy(plan = n) }
-        return true
+    private fun persistVersion(v: PlanVersion, patch: String) {
+        val id = planId
+        val snapshot = ProtocolJson.encodeToString(OrganizePlan.serializer(), v.plan)
+        viewModelScope.launch {
+            runCatching { app.db.plans().insertVersion(PlanVersionEntity(0, id, v.number, patch, snapshot, v.time)) }
+        }
     }
 
-    fun setChecked(ids: Set<String>, checked: Boolean) = editPlan { it.setChecked(ids, checked) }
+    private fun persistPins() {
+        val s = session ?: return
+        val id = planId
+        val rows = s.pins.folders.map { PinnedDecisionEntity(0, id, "folder_name", it, null) } +
+            s.pins.files.map { (file, folder) -> PinnedDecisionEntity(0, id, if (folder != null) "file_in_folder" else "file_excluded", file, folder) }
+        viewModelScope.launch { runCatching { app.db.plans().replacePins(id, rows) } }
+    }
+
+    // --- plan editing ---------------------------------------------------------------------------
+
+    fun setChecked(ids: Set<String>, checked: Boolean) {
+        session?.setChecked(ids, checked) ?: return
+        persistPins(); publish()
+    }
 
     fun renameFolder(old: String, new: String): Boolean {
-        val ok = editPlan { it.renameFolder(old, new) }
+        val ok = session?.renameFolder(old, new) ?: false
         if (!ok) _state.update { it.copy(message = "Недопустимое или уже занятое имя папки") }
+        else { persistPins(); publish() }
         return ok
     }
 
-    fun moveFiles(ids: Set<String>, target: String) = editPlan { it.moveFiles(ids, target) }
+    fun moveFiles(ids: Set<String>, target: String) {
+        session?.moveFiles(ids, target) ?: return
+        persistPins(); publish()
+    }
+
+    // --- refine by text (AI patches) ------------------------------------------------------------
+
+    fun refine(instruction: String) {
+        val s = session ?: return
+        val text = instruction.trim()
+        if (text.isEmpty() || _state.value.refine.running) return
+        if (s.refinesLeft <= 0) {
+            _state.update { it.copy(message = "Лимит правок ИИ на эту сессию исчерпан (${s.maxRefines}). Правьте план вручную.") }
+            return
+        }
+        _state.update { it.copy(refine = RefineState(running = true, instruction = text)) }
+        viewModelScope.launch {
+            try {
+                app.api.warmUp()
+                val (result, note) = s.refine(app.api, text)
+                publish()
+                if (!result.hasChanges) {
+                    val msg = buildString {
+                        append(note.ifEmpty { "ИИ не предложил изменений." })
+                        if (result.skipped.isNotEmpty()) {
+                            append("\n\nНе выполнено:\n")
+                            append(result.skipped.joinToString("\n") { "• $it" })
+                        }
+                    }
+                    _state.update { it.copy(refine = RefineState(), message = msg) }
+                } else {
+                    _state.update {
+                        it.copy(screen = Screen.REFINE_DIFF, refine = RefineState(false, text, result, note))
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: RefineLimitException) {
+                _state.update { it.copy(refine = RefineState(), message = e.message) }
+            } catch (e: AiUnavailableException) {
+                _state.update { it.copy(refine = RefineState(instruction = text), message = e.message ?: "ИИ временно недоступен") }
+            } catch (e: AiRequestException) {
+                _state.update { it.copy(refine = RefineState(instruction = text), message = e.message) }
+            }
+        }
+    }
+
+    fun acceptRefine() {
+        val s = session ?: return
+        val r = _state.value.refine
+        val result = r.result ?: return
+        s.accept(result, r.instruction)
+        persistVersion(s.versions.last(), (listOf(r.instruction) + result.applied).joinToString("\n"))
+        persistPins()
+        _state.update { it.copy(screen = Screen.PICTURE, refine = RefineState()) }
+        publish()
+    }
+
+    fun rejectRefine() = _state.update { it.copy(screen = Screen.PICTURE, refine = RefineState()) }
+
+    fun rollback(number: Int) {
+        val s = session ?: return
+        if (s.rollback(number)) {
+            persistVersion(s.versions.last(), "rollback:$number")
+            publish()
+        }
+    }
+
+    // --- saved schemes --------------------------------------------------------------------------
+
+    fun saveScheme(name: String) {
+        val s = session ?: return
+        val rootRef = root ?: return
+        val snapshot = s.snapshot(rootRef.id, _state.value.rootLabel).copy(versions = emptyList()).encode()
+        val entity = SavedPlanEntity(planId, Text.clean(name, 60).ifEmpty { _state.value.rootLabel }, rootRef.id, snapshot, System.currentTimeMillis())
+        viewModelScope.launch {
+            app.db.plans().saveScheme(entity)
+            _state.update { it.copy(message = "Схема «${entity.name}» сохранена. Её можно открыть в разделе «Сохранённые схемы».") }
+        }
+    }
+
+    fun openSavedList() {
+        returnTo = _state.value.screen
+        _state.update { it.copy(screen = Screen.SAVED) }
+        viewModelScope.launch { _state.update { it.copy(savedPlans = app.db.plans().schemes()) } }
+    }
+
+    fun deleteSaved(info: SavedPlanInfo) = viewModelScope.launch {
+        app.db.plans().deleteScheme(info.id)
+        _state.update { it.copy(savedPlans = app.db.plans().schemes()) }
+    }
+
+    suspend fun savedExport(info: SavedPlanInfo, json: Boolean): String? {
+        val e = app.db.plans().scheme(info.id) ?: return null
+        val snap = runCatching { PlanSnapshot.decode(e.snapshot) }.getOrNull() ?: return null
+        return if (json) PlanExport.toJson(snap.rootLabel, snap.plan) else PlanExport.toText(snap.rootLabel, snap.plan)
+    }
+
+    /** Reopens a scheme: files that are gone or changed are marked and excluded from applying. */
+    fun openSaved(info: SavedPlanInfo) {
+        val src = sourceFor(info.rootId) ?: return
+        viewModelScope.launch {
+            try {
+                val e = app.db.plans().scheme(info.id) ?: return@launch
+                val snap = PlanSnapshot.decode(e.snapshot)
+                val checked = withContext(Dispatchers.IO) { Staleness.check(snap.plan, src) }
+                val s = PlanSession.restore(snap)
+                s.replacePlan(checked)
+                session = s
+                planId = info.id
+                source = src
+                root = NodeRef(info.rootId)
+                scan = null
+                summary = null
+                _state.update {
+                    it.copy(
+                        screen = Screen.PICTURE, rootLabel = snap.rootLabel, duplicates = emptyList(), fromSaved = true,
+                        refine = RefineState(), preview = null, apply = ApplyState(),
+                        aiNote = if (checked.staleCount > 0) "Устарело пунктов: ${checked.staleCount}. Они исключены из применения." else null,
+                    )
+                }
+                publish()
+            } catch (e: AccessLostException) {
+                onAccessLost()
+            } catch (e: Exception) {
+                _state.update { it.copy(message = "Не удалось открыть схему: ${e.message ?: e.javaClass.simpleName}") }
+            }
+        }
+    }
+
+    /** FileSource able to work with the given root id, or null (a message is shown). */
+    private fun sourceFor(rootId: String): FileSource? =
+        if (rootId.startsWith("content://")) {
+            val tree = Access.treeOf(Uri.parse(rootId))
+            if (tree == null || !Access.hasTreePermission(app, tree)) {
+                _state.update { it.copy(message = "Нет доступа к этой папке. Выберите её снова в режиме выбора папки.") }
+                null
+            } else SafBackend(app, tree)
+        } else {
+            if (!Access.hasAllFiles(app)) {
+                _state.update { it.copy(message = "Для этой папки нужен доступ ко всем файлам.") }
+                null
+            } else FileBackend(app)
+        }
 
     fun exportJson(): String = _state.value.plan?.let { PlanExport.toJson(_state.value.rootLabel, it) } ?: "{}"
     fun exportText(): String = _state.value.plan?.let { PlanExport.toText(_state.value.rootLabel, it) } ?: ""
@@ -330,12 +534,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun openPreview() {
         val plan = _state.value.plan ?: return
         val src = source ?: return
-        val result = scan ?: return
+        val rootRef = root ?: return
         viewModelScope.launch {
             try {
                 val mode = app.settings.current().conflictMode
                 val checked = plan.checkedItems
-                val existingByKey = result.existingFolders.associateBy { FolderNames.key(it.name) }
+                val dirs = withContext(Dispatchers.IO) { src.list(rootRef).nodes.filter { it.isDir } }
+                val existingByKey = dirs.associateBy { FolderNames.key(it.name) }
                 val names = HashMap<String, Set<String>>()
                 for (key in checked.map { FolderNames.key(it.folder) }.toSet()) {
                     val dir = existingByKey[key] ?: continue
@@ -388,20 +593,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun undo(session: SessionSummary) {
-        val src: FileSource = if (session.rootId.startsWith("content://")) {
-            val tree = Access.treeOf(Uri.parse(session.rootId))
-            if (tree == null || !Access.hasTreePermission(app, tree)) {
-                _state.update { it.copy(message = "Нет доступа к папке этого применения. Выберите её снова в режиме выбора папки.") }
-                return
-            }
-            SafBackend(app, tree)
-        } else {
-            if (!Access.hasAllFiles(app)) {
-                _state.update { it.copy(message = "Для отмены нужен доступ ко всем файлам.") }
-                return
-            }
-            FileBackend(app)
-        }
+        val src: FileSource = sourceFor(session.rootId) ?: return
         _state.update { it.copy(undoRunning = true) }
         viewModelScope.launch {
             val report = withContext(Dispatchers.IO) { Applier(src, app.journal).undo(session.session) }
@@ -421,6 +613,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun clearData() = viewModelScope.launch {
         val tree = _state.value.settings.treeUri
         app.db.journal().clear()
+        app.db.plans().clearVersions()
+        app.db.plans().clearSchemes()
+        app.db.plans().clearAllPins()
         app.settings.clear()
         if (tree != null) {
             runCatching {

@@ -5,7 +5,10 @@ import com.forganizer.core.AiUnavailableException
 import com.forganizer.core.PlanApi
 import com.forganizer.core.PlanRequest
 import com.forganizer.core.ProtocolJson
+import com.forganizer.core.RawPatch
 import com.forganizer.core.RawPlan
+import com.forganizer.core.RefineApi
+import com.forganizer.core.RefineRequest
 import kotlinx.coroutines.suspendCancellableCoroutine
 import okhttp3.Call
 import okhttp3.Callback
@@ -23,7 +26,7 @@ import kotlin.coroutines.resumeWithException
 class HttpPlanApi(
     private val baseUrl: () -> String,
     private val token: String,
-) : PlanApi {
+) : PlanApi, RefineApi {
     private val client = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(150, TimeUnit.SECONDS)
@@ -40,12 +43,21 @@ class HttpPlanApi(
         runCatching { execute(Request.Builder().url(url("/health")).get().build()).close() }
     }
 
-    override suspend fun plan(request: PlanRequest): RawPlan {
-        val body = ProtocolJson.encodeToString(PlanRequest.serializer(), request).toRequestBody(jsonType)
+    override suspend fun plan(request: PlanRequest): RawPlan =
+        post("/plan", ProtocolJson.encodeToString(PlanRequest.serializer(), request)) {
+            ProtocolJson.decodeFromString(RawPlan.serializer(), it)
+        }
+
+    override suspend fun refine(request: RefineRequest): RawPatch =
+        post("/refine", ProtocolJson.encodeToString(RefineRequest.serializer(), request)) {
+            ProtocolJson.decodeFromString(RawPatch.serializer(), it)
+        }
+
+    private suspend fun <T> post(path: String, json: String, decode: (String) -> T): T {
         val http = Request.Builder()
-            .url(url("/plan"))
+            .url(url(path))
             .header("X-App-Token", token)
-            .post(body)
+            .post(json.toRequestBody(jsonType))
             .build()
         val response = try {
             execute(http)
@@ -56,7 +68,7 @@ class HttpPlanApi(
             val text = r.body?.string().orEmpty()
             when (r.code) {
                 200 -> return try {
-                    ProtocolJson.decodeFromString(RawPlan.serializer(), text)
+                    decode(text)
                 } catch (e: Exception) {
                     throw AiUnavailableException("Сервер вернул некорректный ответ")
                 }
@@ -64,6 +76,7 @@ class HttpPlanApi(
                 401 -> throw AiRequestException(401, "Сервер отклонил токен приложения")
                 413 -> throw AiRequestException(413, "Слишком большой запрос")
                 400 -> throw AiRequestException(400, "Сервер не принял формат запроса")
+                404 -> throw AiRequestException(404, "Сервер не поддерживает эту функцию, обновите его")
                 else -> throw AiUnavailableException("Ошибка сервера (${r.code})")
             }
         }

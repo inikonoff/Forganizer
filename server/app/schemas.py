@@ -73,3 +73,130 @@ class PlanOut(BaseModel):
     folders: list[FolderOut] = []
     assignments: list[AssignmentOut] = []
     leave: list[LeaveOut] = []
+
+
+# --- /refine -------------------------------------------------------------------------------------
+
+from typing import Annotated, Literal, Union  # noqa: E402
+
+MAX_OPS = 20
+MAX_PINNED = 50
+
+
+class FolderSummary(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    name: str = Field(max_length=100)
+    count: int = Field(ge=0)
+    exts: dict[str, int] = {}
+    bundles: list[str] = Field(default=[], max_length=100)
+
+
+class LeaveSummary(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    count: int = Field(default=0, ge=0)
+    exts: dict[str, int] = {}
+
+
+class Pinned(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    kind: str = Field(max_length=32)
+    name: Optional[str] = Field(default=None, max_length=100)
+    ref: Optional[str] = Field(default=None, max_length=32)
+    folder: Optional[str] = Field(default=None, max_length=100)
+
+
+class RefineRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    instruction: str = Field(min_length=1, max_length=500)
+    existing_folders: list[str] = Field(default=[], max_length=1000)
+    allow_existing: bool = False
+    folders: list[FolderSummary] = Field(default=[], max_length=200)
+    leave: LeaveSummary = LeaveSummary()
+    pinned: list[Pinned] = Field(default=[], max_length=MAX_PINNED)
+    history: list[str] = Field(default=[], max_length=3)
+
+    @field_validator("instruction")
+    @classmethod
+    def strip_instruction(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("empty instruction")
+        return v
+
+
+class Selector(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    ext: Optional[list[Annotated[str, Field(max_length=16)]]] = Field(default=None, max_length=50)
+    name_contains: Optional[str] = Field(default=None, max_length=100)
+    name_starts_with: Optional[str] = Field(default=None, max_length=100)
+    bundle: Optional[str] = Field(default=None, max_length=100)
+    from_folder: Optional[str] = Field(default=None, max_length=100)
+    group: Optional[str] = Field(default=None, max_length=32)
+    refs: Optional[list[Annotated[str, Field(max_length=32)]]] = Field(default=None, max_length=20)
+
+    @model_validator(mode="after")
+    def at_least_one(self) -> "Selector":
+        if not any(v not in (None, [], "") for v in self.model_dump().values()):
+            raise ValueError("select needs at least one field")
+        return self
+
+
+class _Op(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class MoveOp(_Op):
+    op: Literal["move"]
+    select: Selector
+    to: str = Field(min_length=1, max_length=100)
+
+
+class ToLeaveOp(_Op):
+    op: Literal["to_leave"]
+    select: Selector
+
+
+class CreateFolderOp(_Op):
+    op: Literal["create_folder"]
+    name: str = Field(min_length=1, max_length=100)
+    desc: str = Field(default="", max_length=200)
+
+
+class RenameFolderOp(_Op):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+    op: Literal["rename_folder"]
+    from_: str = Field(alias="from", min_length=1, max_length=100)
+    to: str = Field(min_length=1, max_length=100)
+
+
+class MergeFoldersOp(_Op):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+    op: Literal["merge_folders"]
+    from_: list[Annotated[str, Field(max_length=100)]] = Field(alias="from", min_length=1, max_length=20)
+    into: str = Field(min_length=1, max_length=100)
+
+
+class UnbundleOp(_Op):
+    op: Literal["unbundle"]
+    bundle: str = Field(min_length=1, max_length=100)
+
+
+PatchOp = Annotated[
+    Union[MoveOp, ToLeaveOp, CreateFolderOp, RenameFolderOp, MergeFoldersOp, UnbundleOp],
+    Field(discriminator="op"),
+]
+
+
+class RefineOut(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    ops: list[PatchOp] = Field(default=[], max_length=MAX_OPS)
+    note: str = ""
+
+    @field_validator("note")
+    @classmethod
+    def clean_note(cls, v: str) -> str:
+        v = " ".join(v.replace('"', "").split())
+        return v[:120]
+
+    def dump(self) -> dict:
+        return {"ops": [o.model_dump(by_alias=True, exclude_none=True) for o in self.ops], "note": self.note}

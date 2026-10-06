@@ -14,7 +14,7 @@ from pydantic import ValidationError
 
 from .config import Settings
 from .llm import AllModelsFailed, Completion, Planner
-from .schemas import PlanRequest
+from .schemas import PlanRequest, RefineRequest
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("forganizer")
@@ -40,8 +40,7 @@ def create_app(settings: Optional[Settings] = None, completion: Optional[Complet
     async def health():
         return {"status": "ok"}
 
-    @app.post("/plan")
-    async def plan(request: Request):
+    async def handle(request: Request, schema, run, dump) -> JSONResponse | dict:
         started = time.monotonic()
         status = 500
         size = 0
@@ -65,23 +64,31 @@ def create_app(settings: Optional[Settings] = None, completion: Optional[Complet
             size = len(body)
 
             try:
-                req = PlanRequest.model_validate(json.loads(body))
+                req = schema.model_validate(json.loads(body))
             except (ValueError, ValidationError):
                 status = 400
                 return error(400, "bad_request", "Неверный формат запроса")
 
             try:
-                result, model = await planner.plan(req)
+                result, model = await run(req)
             except AllModelsFailed:
                 status = 503
                 return error(503, "ai_unavailable", "ИИ временно недоступен")
             status = 200
-            return result.model_dump()
+            return dump(result)
         finally:
             log.info(
-                "plan status=%d bytes=%d ms=%d model=%s",
-                status, size, (time.monotonic() - started) * 1000, model,
+                "%s status=%d bytes=%d ms=%d model=%s",
+                request.url.path, status, size, (time.monotonic() - started) * 1000, model,
             )
+
+    @app.post("/plan")
+    async def plan(request: Request):
+        return await handle(request, PlanRequest, planner.plan, lambda r: r.model_dump())
+
+    @app.post("/refine")
+    async def refine(request: Request):
+        return await handle(request, RefineRequest, planner.refine, lambda r: r.dump())
 
     return app
 

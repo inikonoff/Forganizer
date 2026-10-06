@@ -5,6 +5,10 @@ import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Entity
 import androidx.room.Insert
+import androidx.room.OnConflictStrategy
+import androidx.room.Transaction
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import androidx.room.PrimaryKey
 import androidx.room.Query
 import androidx.room.Room
@@ -68,13 +72,117 @@ interface JournalDao {
     suspend fun clear()
 }
 
-@Database(entities = [JournalEntity::class], version = 1, exportSchema = false)
+@Entity(tableName = "plan_versions")
+data class PlanVersionEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val planId: String,
+    val number: Int,
+    val patch: String,
+    val snapshot: String,
+    val time: Long,
+)
+
+@Entity(tableName = "saved_plans")
+data class SavedPlanEntity(
+    @PrimaryKey val id: String,
+    val name: String,
+    val rootId: String,
+    val snapshot: String,
+    val time: Long,
+)
+
+@Entity(tableName = "pinned_decisions")
+data class PinnedDecisionEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val planId: String,
+    val kind: String,
+    val obj: String,
+    val value: String?,
+)
+
+/** Saved scheme row without the (large) snapshot, for the list screen. */
+data class SavedPlanInfo(
+    val id: String,
+    val name: String,
+    val rootId: String,
+    val time: Long,
+)
+
+@Dao
+interface PlanDao {
+    @Insert
+    suspend fun insertVersion(e: PlanVersionEntity): Long
+
+    @Query("SELECT * FROM plan_versions WHERE planId = :planId AND number = :number LIMIT 1")
+    suspend fun version(planId: String, number: Int): PlanVersionEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun saveScheme(e: SavedPlanEntity)
+
+    @Query("SELECT id, name, rootId, time FROM saved_plans ORDER BY time DESC")
+    suspend fun schemes(): List<SavedPlanInfo>
+
+    @Query("SELECT * FROM saved_plans WHERE id = :id")
+    suspend fun scheme(id: String): SavedPlanEntity?
+
+    @Query("DELETE FROM saved_plans WHERE id = :id")
+    suspend fun deleteScheme(id: String)
+
+    @Query("DELETE FROM pinned_decisions WHERE planId = :planId")
+    suspend fun clearPins(planId: String)
+
+    @Insert
+    suspend fun insertPins(e: List<PinnedDecisionEntity>)
+
+    @Transaction
+    suspend fun replacePins(planId: String, pins: List<PinnedDecisionEntity>) {
+        clearPins(planId)
+        insertPins(pins)
+    }
+
+    @Query("DELETE FROM plan_versions")
+    suspend fun clearVersions()
+
+    @Query("DELETE FROM saved_plans")
+    suspend fun clearSchemes()
+
+    @Query("DELETE FROM pinned_decisions")
+    suspend fun clearAllPins()
+}
+
+@Database(
+    entities = [JournalEntity::class, PlanVersionEntity::class, SavedPlanEntity::class, PinnedDecisionEntity::class],
+    version = 2,
+    exportSchema = false,
+)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun journal(): JournalDao
+    abstract fun plans(): PlanDao
 
     companion object {
+        /** v2: plan versions, saved schemes and pinned decisions. The journal is kept. */
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `plan_versions` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`planId` TEXT NOT NULL, `number` INTEGER NOT NULL, `patch` TEXT NOT NULL, " +
+                        "`snapshot` TEXT NOT NULL, `time` INTEGER NOT NULL)"
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `saved_plans` (`id` TEXT NOT NULL, `name` TEXT NOT NULL, " +
+                        "`rootId` TEXT NOT NULL, `snapshot` TEXT NOT NULL, `time` INTEGER NOT NULL, PRIMARY KEY(`id`))"
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `pinned_decisions` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`planId` TEXT NOT NULL, `kind` TEXT NOT NULL, `obj` TEXT NOT NULL, `value` TEXT)"
+                )
+            }
+        }
+
         fun create(context: Context) =
-            Room.databaseBuilder(context, AppDatabase::class.java, "forganizer.db").build()
+            Room.databaseBuilder(context, AppDatabase::class.java, "forganizer.db")
+                .addMigrations(MIGRATION_1_2)
+                .build()
     }
 }
 

@@ -13,6 +13,7 @@ data class ExportEntry(
     val reason: String,
     val confidence: Double,
     val selected: Boolean,
+    val stale: String? = null,
 )
 
 @Serializable
@@ -34,7 +35,7 @@ object PlanExport {
         ExportDoc(
             root = root,
             folders = plan.folders.map { it.name },
-            plan = plan.items.map { ExportEntry(it.file.id, it.file.name, it.folder, it.bundle, it.reason, it.confidence, it.checked) },
+            plan = plan.items.map { ExportEntry(it.file.id, it.file.name, it.folder, it.bundle, it.reason, it.confidence, it.checked && it.stale == null, it.stale) },
             leave = plan.leave.map { ExportLeave(it.file.id, it.file.name, it.reason) },
         ),
     )
@@ -46,7 +47,11 @@ object PlanExport {
             val items = plan.itemsIn(f.name)
             appendLine("${f.name}/ (${items.size})" + if (f.desc.isNotEmpty()) " - ${f.desc}" else "")
             for (it in items) {
-                val mark = if (it.checked) "" else " [не выбрано]"
+                val mark = when {
+                    it.stale != null -> " [устарело: ${it.stale}]"
+                    it.checked -> ""
+                    else -> " [не выбрано]"
+                }
                 appendLine("  ${it.file.name} -> ${f.name}/$mark")
             }
             appendLine()
