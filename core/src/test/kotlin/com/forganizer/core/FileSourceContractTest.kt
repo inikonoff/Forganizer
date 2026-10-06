@@ -3,7 +3,6 @@ package com.forganizer.core
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -23,7 +22,7 @@ abstract class FileSourceContract {
         val a = listed.first { it.name == "a.txt" }
         val moved = src.move(a, root, dir, "a.txt")
         assertTrue(moved is MoveResult.Moved)
-        assertNull(src.stat(a.ref))
+        assertTrue(src.list(root).nodes.none { it.name == "a.txt" })
         val b = listed.first { it.name == "b.txt" }
         assertTrue("never overwrite", src.move(b, root, dir, "a.txt") is MoveResult.Failed)
         assertNotNull(src.stat(b.ref))

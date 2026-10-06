@@ -36,7 +36,7 @@ object FolderNames {
 
     /** Normalizes a model-proposed folder name; null if nothing usable remains. */
     fun normalize(raw: String): String? {
-        var s = raw.replace(CONTROL, "").replace(FORBIDDEN, " ")
+        var s = raw.replace(CONTROL, " ").replace(FORBIDDEN, " ")
         s = s.replace(Regex("""\s+"""), " ").trim()
         s = s.trimStart('.', ' ')
         if (s.length > MAX_LEN) s = s.substring(0, MAX_LEN).trimEnd()
