@@ -15,7 +15,7 @@
 
 ## Сборка APK (GitHub Actions)
 
-Workflow `.github/workflows/android.yml` на каждый push в `main` прогоняет тесты `core` и собирает `fullRelease` и `playRelease`. APK лежат в артефактах запуска (Actions → запуск → Artifacts). При пуше тега `v*` APK прикрепляются к GitHub Release.
+Workflow `.github/workflows/android.yml` на каждый push в `main` прогоняет тесты `core` и собирает `fullRelease` и `playRelease`. APK лежат в артефактах запуска (Actions → запуск → Artifacts). При создании релиза (тег любого вида: `v0.2.0` или `0.2.0`) APK автоматически прикрепляются к GitHub Release. К уже существующему релизу их можно добавить вручную: Actions → Android APK → Run workflow → в поле `release_tag` указать тег релиза.
 
 Настройки репозитория (Settings → Secrets and variables → Actions):
 

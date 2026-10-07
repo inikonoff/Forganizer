@@ -3,10 +3,15 @@ name: Android APK
 on:
   push:
     branches: [main]
-    tags: ["v*"]
+    tags: ["v*", "[0-9]*"]
     paths-ignore: ["server/**", "docs/**", "*.md", "render.yaml"]
   pull_request:
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Existing release tag to attach the APKs to (e.g. 0.2.0). Leave empty to only build."
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -34,9 +39,15 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
 
       - name: Version name
+        env:
+          RELEASE_TAG: ${{ github.event.inputs.release_tag }}
         run: |
-          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
-            echo "VERSION_NAME=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+          tag=""
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then tag="${GITHUB_REF_NAME}"; fi
+          if [ -n "${RELEASE_TAG}" ]; then tag="${RELEASE_TAG}"; fi
+          echo "RELEASE_TAG=${tag}" >> "$GITHUB_ENV"
+          if [ -n "${tag}" ]; then
+            echo "VERSION_NAME=${tag#v}" >> "$GITHUB_ENV"
           else
             echo "VERSION_NAME=0.1.${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
           fi
@@ -72,8 +83,12 @@ jobs:
           name: test-reports
           path: core/build/reports/tests/
 
-      - name: GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: dist/*.apk
+      - name: Attach APKs to the GitHub release
+        if: env.RELEASE_TAG != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --title "$RELEASE_TAG" --generate-notes
+          fi
+          gh release upload "$RELEASE_TAG" dist/*.apk --repo "$GITHUB_REPOSITORY" --clobber
