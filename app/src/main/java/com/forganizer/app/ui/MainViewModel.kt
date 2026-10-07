@@ -197,13 +197,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             if (Access.hasAllFiles(app)) {
                 val path = Access.treeToPath(uri)
-                if (path != null && path.isDirectory) {
+                // The path must be really readable: on some devices an SD card path resolves but listing is denied.
+                val readable = path != null && withContext(Dispatchers.IO) { path.isDirectory && path.listFiles() != null }
+                if (path != null && readable) {
                     startScanFull(path); return@launch
                 }
-                // A folder we cannot open as a plain path (another provider): work with it through SAF
-                // right away instead of silently staying on the folder screen.
+                // Otherwise work with the picked folder through the system file access (SAF) right away.
                 if (!Access.hasTreePermission(app, uri)) {
-                    _state.update { it.copy(message = "Не удалось получить доступ к выбранной папке. Выберите её ещё раз.") }
+                    _state.update { it.copy(message = "Не удалось получить доступ к выбранной папке. Выберите её ещё раз и подтвердите доступ в системном окне.") }
                     return@launch
                 }
                 val saf = SafBackend(app, uri)
@@ -308,7 +309,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             } catch (e: CancellationException) {
                 throw e
             } catch (e: AccessLostException) {
-                onAccessLost()
+                onAccessLost(e.message)
             } catch (e: Exception) {
                 _state.update { it.copy(scanError = "Ошибка сканирования: ${e.message ?: e.javaClass.simpleName}") }
             }
@@ -697,9 +698,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         route()
     }
 
-    private fun onAccessLost() {
+    private fun onAccessLost(detail: String? = null) {
         _state.update {
-            it.copy(screen = Screen.ACCESS, mode = null, message = "Доступ к файлам потерян. Журнал сохранён, выберите доступ заново.")
+            it.copy(
+                screen = Screen.ACCESS, mode = null,
+                message = "Доступ к файлам потерян" + (detail?.let { d -> " ($d)" } ?: "") +
+                    ". Журнал сохранён, выберите доступ заново.",
+            )
         }
     }
 

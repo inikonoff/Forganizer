@@ -3,22 +3,33 @@ package com.forganizer.app.ui
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.RadioButton
-import androidx.compose.material3.Switch
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -28,6 +39,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.forganizer.app.BuildConfig
@@ -90,6 +102,7 @@ fun JournalScreen(vm: MainViewModel, state: UiState) {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(vm: MainViewModel, state: UiState) {
     val s = state.settings
@@ -101,97 +114,205 @@ fun SettingsScreen(vm: MainViewModel, state: UiState) {
 
     ScreenScaffold("Настройки", onBack = vm::back) { padding ->
         ScrollColumn(padding) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("Класть в существующие папки")
-                    Hint("Разрешить ИИ предлагать уже существующие папки (allow_existing)")
-                }
-                Switch(checked = s.allowExisting, onCheckedChange = { v -> vm.updateSettings { it.copy(allowExisting = v) } })
+            SettingsSection("Анализ") {
+                CheckRow(
+                    checked = s.allowExisting,
+                    title = "Класть в существующие папки",
+                    hint = "Разрешить ИИ предлагать уже существующие папки.",
+                ) { v -> vm.updateSettings { it.copy(allowExisting = v) } }
+                HorizontalDivider()
+                CheckRow(
+                    checked = s.peekArchives,
+                    title = "Заглядывать в zip-архивы",
+                    hint = "Для zip отправляется краткая сводка имён внутри (число файлов, корневые папки, типы). Содержимое файлов не читается.",
+                ) { v -> vm.updateSettings { it.copy(peekArchives = v) } }
             }
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { vm.updateSettings { it.copy(peekArchives = !s.peekArchives) } },
-            ) {
-                Checkbox(checked = s.peekArchives, onCheckedChange = { v -> vm.updateSettings { it.copy(peekArchives = v) } })
-                Column(Modifier.weight(1f)) {
-                    Text("Заглядывать в zip-архивы")
-                    Hint("Для zip отправляется краткая сводка имён внутри (число файлов, корневые папки, типы). Содержимое файлов не читается. Помогает отличить проект с кодом от книг и документов.")
+
+            SettingsSection("Правила анализа") {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedTextField(
+                        value = exts, onValueChange = { exts = it },
+                        label = { Text("Игнорируемые расширения") },
+                        singleLine = true, modifier = Modifier.fillMaxWidth(),
+                    )
+                    OutlinedTextField(
+                        value = dirs, onValueChange = { dirs = it },
+                        label = { Text("Игнорируемые папки") },
+                        singleLine = true, modifier = Modifier.fillMaxWidth(),
+                    )
+                    OutlinedTextField(
+                        value = days, onValueChange = { days = it.filter(Char::isDigit).take(4) },
+                        label = { Text("Старые установщики, дней") },
+                        supportingText = { Text("APK старше этого срока попадают в «Старые установщики»") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true, modifier = Modifier.fillMaxWidth(),
+                    )
+                    Button(
+                        onClick = {
+                            vm.updateSettings {
+                                it.copy(
+                                    ignoreExtensions = SettingsStore.splitList(exts),
+                                    ignoreFolders = SettingsStore.splitList(dirs),
+                                    oldDays = days.toIntOrNull()?.coerceIn(1, 3650) ?: it.oldDays,
+                                )
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("Сохранить") }
                 }
             }
-            HorizontalDivider()
-            OutlinedTextField(
-                value = exts, onValueChange = { exts = it },
-                label = { Text("Игнорируемые расширения") }, modifier = Modifier.fillMaxWidth(),
-            )
-            OutlinedTextField(
-                value = dirs, onValueChange = { dirs = it },
-                label = { Text("Игнорируемые папки") }, modifier = Modifier.fillMaxWidth(),
-            )
-            OutlinedTextField(
-                value = days, onValueChange = { days = it.filter(Char::isDigit).take(4) },
-                label = { Text("Старые установщики: старше N дней") },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Button(onClick = {
-                vm.updateSettings {
-                    it.copy(
-                        ignoreExtensions = SettingsStore.splitList(exts),
-                        ignoreFolders = SettingsStore.splitList(dirs),
-                        oldDays = days.toIntOrNull()?.coerceIn(1, 3650) ?: it.oldDays,
+
+            SettingsSection("Если имя файла уже занято") {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    val modes = ConflictMode.entries
+                    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                        modes.forEachIndexed { index, mode ->
+                            SegmentedButton(
+                                selected = s.conflictMode == mode,
+                                onClick = { vm.updateSettings { it.copy(conflictMode = mode) } },
+                                shape = SegmentedButtonDefaults.itemShape(index = index, count = modes.size),
+                            ) {
+                                Text(if (mode == ConflictMode.RENAME) "Переименовать" else "Пропустить", maxLines = 1)
+                            }
+                        }
+                    }
+                    Hint(
+                        (if (s.conflictMode == ConflictMode.RENAME) "Новый файл сохранится как name (1).ext. " else "Файл с таким именем будет пропущен. ") +
+                            "Перезапись запрещена всегда.",
                     )
                 }
-            }) { Text("Сохранить правила анализа") }
-            HorizontalDivider()
-            SectionTitle("Конфликт имён при перемещении")
-            for (mode in ConflictMode.entries) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .selectable(selected = s.conflictMode == mode, onClick = { vm.updateSettings { it.copy(conflictMode = mode) } }),
-                ) {
-                    RadioButton(selected = s.conflictMode == mode, onClick = { vm.updateSettings { it.copy(conflictMode = mode) } })
-                    Text(MainViewModel.CONFLICT_LABELS.getValue(mode))
+            }
+
+            SettingsSection("Сервер ИИ") {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedTextField(
+                        value = server, onValueChange = { server = it.trim() },
+                        label = { Text("Адрес сервера") },
+                        placeholder = { Text(BuildConfig.SERVER_URL) },
+                        supportingText = { Text("Пусто: адрес по умолчанию") },
+                        singleLine = true, modifier = Modifier.fillMaxWidth(),
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        Button(
+                            onClick = { vm.updateSettings { it.copy(serverUrl = server) } },
+                            modifier = Modifier.weight(1f),
+                        ) { Text("Сохранить", maxLines = 1) }
+                        OutlinedButton(onClick = vm::checkServer, modifier = Modifier.weight(1f)) {
+                            Text("Проверить", maxLines = 1)
+                        }
+                    }
+                    Hint("Сначала сохраните адрес, затем нажмите «Проверить»: приложение покажет, видит ли оно сервер и какие модели отвечают.")
                 }
             }
-            Hint("Перезапись запрещена всегда.")
-            HorizontalDivider()
-            OutlinedTextField(
-                value = server, onValueChange = { server = it.trim() },
-                label = { Text("Адрес сервера (пусто = по умолчанию)") },
-                placeholder = { Text(BuildConfig.SERVER_URL) },
-                singleLine = true, modifier = Modifier.fillMaxWidth(),
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = { vm.updateSettings { it.copy(serverUrl = server) } }) { Text("Сохранить адрес") }
-                OutlinedButton(onClick = vm::checkServer) { Text("Проверить соединение") }
+
+            SettingsSection("Доступ и данные") {
+                SettingsListItem(
+                    icon = Icons.Default.Lock,
+                    title = "Режим доступа к файлам",
+                    subtitle = when (state.mode) {
+                        Mode.FULL -> "Сейчас: доступ ко всем файлам"
+                        Mode.SAF -> "Сейчас: выбранная папка"
+                        null -> "Сейчас: нет доступа"
+                    },
+                    onClick = vm::openAccess,
+                )
+                HorizontalDivider(Modifier.padding(start = 56.dp))
+                SettingsListItem(
+                    icon = Icons.Default.Info,
+                    title = "Отозвать согласие",
+                    subtitle = "Приложение перестанет отправлять имена файлов, пока вы не согласитесь снова",
+                    onClick = vm::revokeConsent,
+                )
+                HorizontalDivider(Modifier.padding(start = 56.dp))
+                SettingsListItem(
+                    icon = Icons.Default.Delete,
+                    title = "Очистить данные",
+                    subtitle = "Журнал, сохранённые схемы и настройки. Ваши файлы не затрагиваются",
+                    danger = true,
+                    onClick = { confirmClear = true },
+                )
             }
-            Hint("Сначала сохраните адрес, затем проверьте. Проверка сразу показывает, видит ли приложение сервер.")
-            HorizontalDivider()
-            SectionTitle("Доступ и данные")
-            Hint(
-                "Режим: " + when (state.mode) {
-                    Mode.FULL -> "доступ ко всем файлам"
-                    Mode.SAF -> "выбранная папка"
-                    null -> "нет доступа"
-                }
-            )
-            OutlinedButton(onClick = vm::openAccess) { Text("Сменить режим доступа") }
-            OutlinedButton(onClick = vm::revokeConsent) { Text("Отозвать согласие на отправку имён") }
-            OutlinedButton(onClick = { confirmClear = true }) { Text("Очистить данные (журнал, настройки)") }
-            Hint("Версия ${BuildConfig.VERSION_NAME} (${BuildConfig.FLAVOR})")
+
+            Hint("Forganizer ${BuildConfig.VERSION_NAME} (${BuildConfig.FLAVOR})", modifier = Modifier.padding(start = 4.dp))
         }
     }
     if (confirmClear) {
         AlertDialog(
             onDismissRequest = { confirmClear = false },
             title = { Text("Очистить данные?") },
-            text = { Text("Журнал применений и настройки будут удалены. После этого отменить прошлые применения будет нельзя. Ваши файлы не затрагиваются.") },
-            confirmButton = { TextButton(onClick = { confirmClear = false; vm.clearData() }) { Text("Очистить") } },
+            text = { Text("Журнал применений, сохранённые схемы и настройки будут удалены. После этого отменить прошлые применения будет нельзя. Ваши файлы не затрагиваются.") },
+            confirmButton = {
+                TextButton(onClick = { confirmClear = false; vm.clearData() }) {
+                    Text("Очистить", color = MaterialTheme.colorScheme.error)
+                }
+            },
             dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("Отмена") } },
         )
+    }
+}
+
+/** A titled group of settings on a softly tinted, rounded card. */
+@Composable
+private fun SettingsSection(title: String, content: @Composable ColumnScope.() -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            title,
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(start = 4.dp),
+        )
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+        ) {
+            Column(content = content)
+        }
+    }
+}
+
+@Composable
+private fun CheckRow(checked: Boolean, title: String, hint: String, onChange: (Boolean) -> Unit) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onChange(!checked) }
+            .padding(horizontal = 8.dp, vertical = 8.dp),
+    ) {
+        Checkbox(checked = checked, onCheckedChange = onChange)
+        Column(Modifier.weight(1f).padding(end = 8.dp)) {
+            Text(title)
+            Hint(hint)
+        }
+    }
+}
+
+/** A classic settings row: icon, title, subtitle and a chevron. Dangerous actions use the error color. */
+@Composable
+private fun SettingsListItem(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    danger: Boolean = false,
+    onClick: () -> Unit,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+    ) {
+        Icon(
+            icon, contentDescription = null,
+            tint = if (danger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+        )
+        Spacer(Modifier.width(16.dp))
+        Column(Modifier.weight(1f)) {
+            Text(title, color = if (danger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
+            Hint(subtitle)
+        }
+        Text("›", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
