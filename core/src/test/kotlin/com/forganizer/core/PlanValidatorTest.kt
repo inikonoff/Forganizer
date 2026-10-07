@@ -114,6 +114,16 @@ class PlanValidatorTest {
         assertEquals("hidden", FolderNames.normalize(".hidden"))
     }
 
+    @Test fun unicodeDashesAndSpacesBecomePlain() {
+        assertEquals("APK-пакеты", FolderNames.normalize("APK\u2011пакеты"))
+        assertEquals("Аудио-файлы", FolderNames.normalize("Аудио\u2013файлы"))
+        assertEquals("Тексты и заметки", FolderNames.normalize("Тексты\u00A0и\u202Fзаметки"))
+        val raw = RawPlan(listOf(FolderDto("HTML\u2011страницы")), listOf(AssignmentDto("f1", "HTML\u2011страницы", null, "r", 0.9)))
+        val r = req("f1")
+        val p = PlanValidator(emptyList(), false).validate(r, raw)
+        assertEquals("HTML-страницы", p.assignments.single().folder)
+    }
+
     @Test fun taxonomyIsLimitedAndSkipsExisting() {
         val raw = RawPlan(folders = (1..20).map { FolderDto("Папка $it") } + FolderDto("docs"))
         val t = PlanValidator(listOf("Docs"), false).validateTaxonomy(raw)

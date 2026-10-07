@@ -36,11 +36,14 @@ object Reasons {
 object FolderNames {
     private val FORBIDDEN = Regex("""[/\\:*?"<>|]""")
     private val CONTROL = Regex("""\p{Cntrl}""")
+    /** Non-ASCII hyphens and dashes that models like to produce (U+2011 and friends). */
+    private val DASHES = Regex("[\u2010\u2011\u2012\u2013\u2014\u2015\u2212]")
+    private val ODD_SPACES = Regex("[\u00A0\u2002\u2003\u2007\u2009\u200A\u202F]")
     const val MAX_LEN = 30
 
     /** Normalizes a model-proposed folder name; null if nothing usable remains. */
     fun normalize(raw: String): String? {
-        var s = raw.replace(CONTROL, " ").replace(FORBIDDEN, " ")
+        var s = raw.replace(CONTROL, " ").replace(DASHES, "-").replace(ODD_SPACES, " ").replace(FORBIDDEN, " ")
         s = s.replace(Regex("""\s+"""), " ").trim()
         s = s.trimStart('.', ' ')
         if (s.length > MAX_LEN) s = s.substring(0, MAX_LEN).trimEnd()
