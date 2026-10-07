@@ -200,6 +200,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (path != null && path.isDirectory) {
                     startScanFull(path); return@launch
                 }
+                // A folder we cannot open as a plain path (another provider): work with it through SAF
+                // right away instead of silently staying on the folder screen.
+                if (!Access.hasTreePermission(app, uri)) {
+                    _state.update { it.copy(message = "Не удалось получить доступ к выбранной папке. Выберите её ещё раз.") }
+                    return@launch
+                }
+                val saf = SafBackend(app, uri)
+                start(saf, saf.root, Access.label(saf.root.id))
+                return@launch
             }
             app.settings.update { it.copy(treeUri = uri.toString()) }
             route()

@@ -10,6 +10,7 @@ import android.os.Environment
 import android.provider.DocumentsContract
 import android.provider.Settings
 import com.forganizer.app.BuildConfig
+import com.forganizer.core.StoragePaths
 import java.io.File
 
 data class StandardFolder(val label: String, val dir: File)
@@ -49,9 +50,7 @@ object Access {
     fun treeToPath(tree: Uri): File? {
         val id = runCatching { DocumentsContract.getTreeDocumentId(tree) }.getOrNull() ?: return null
         if (tree.authority != "com.android.externalstorage.documents") return null
-        val (volume, rel) = id.split(':', limit = 2).let { it[0] to it.getOrElse(1) { "" } }
-        if (volume != "primary") return null
-        return File(Environment.getExternalStorageDirectory(), rel)
+        return StoragePaths.fromTreeDocumentId(id, Environment.getExternalStorageDirectory())
     }
 
     /** For a document URI built with a tree, returns that tree URI. */
@@ -63,5 +62,13 @@ object Access {
         if (rootId.startsWith("content://")) {
             val id = runCatching { DocumentsContract.getDocumentId(Uri.parse(rootId)) }.getOrDefault(rootId)
             Uri.decode(id).substringAfter(':').ifEmpty { "Выбранная папка" }
-        } else rootId.removePrefix(Environment.getExternalStorageDirectory().path).trimStart('/').ifEmpty { "/" }
+        } else {
+            val primary = Environment.getExternalStorageDirectory().path
+            when {
+                rootId.startsWith(primary) -> rootId.removePrefix(primary).trimStart('/').ifEmpty { "/" }
+                rootId.startsWith("/storage/") ->
+                    "SD: " + rootId.removePrefix("/storage/").substringAfter('/', "").ifEmpty { rootId.removePrefix("/storage/") }
+                else -> rootId
+            }
+        }
 }
