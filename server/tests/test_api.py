@@ -129,3 +129,20 @@ def test_wrong_structure_is_retried():
 
 def test_parse_models():
     assert parse_models("openrouter:a/b:free, groq:c") == [ModelSpec("openrouter", "a/b:free"), ModelSpec("groq", "c")]
+
+
+def test_settings_from_env_is_tolerant(monkeypatch):
+    from app.config import MIN_BODY_BYTES, Settings
+
+    monkeypatch.setenv("MAX_BODY_BYTES", "512")  # typo: meant 512 KB
+    monkeypatch.setenv("MODEL_TIMEOUT", "60s")
+    monkeypatch.setenv("TEMPERATURE", "")
+    monkeypatch.setenv("MODELS", "  ")
+    s = Settings.from_env()
+    assert s.max_body_bytes == MIN_BODY_BYTES
+    assert s.model_timeout == 60.0
+    assert s.temperature == 0.1
+    assert s.models  # falls back to the default list
+
+    monkeypatch.setenv("MAX_BODY_BYTES", "1048576")
+    assert Settings.from_env().max_body_bytes == 1048576

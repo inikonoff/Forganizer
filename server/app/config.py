@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from dataclasses import dataclass, field
 
@@ -50,14 +51,35 @@ class Settings:
 
     @staticmethod
     def from_env() -> "Settings":
+        max_body = _number("MAX_BODY_BYTES", 512 * 1024, int)
+        if max_body < MIN_BODY_BYTES:
+            # A typo like MAX_BODY_BYTES=512 (meant KB) would reject every real request.
+            log.warning("MAX_BODY_BYTES=%d is too small, using %d", max_body, MIN_BODY_BYTES)
+            max_body = MIN_BODY_BYTES
         return Settings(
             app_token=os.environ.get("APP_TOKEN", ""),
-            models=parse_models(os.environ.get("MODELS", DEFAULT_MODELS)),
+            models=parse_models(os.environ.get("MODELS", "").strip() or DEFAULT_MODELS),
             api_keys={
                 "openrouter": os.environ.get("OPENROUTER_API_KEY", ""),
                 "groq": os.environ.get("GROQ_API_KEY", ""),
             },
-            max_body_bytes=int(os.environ.get("MAX_BODY_BYTES", 512 * 1024)),
-            model_timeout=float(os.environ.get("MODEL_TIMEOUT", 60)),
-            temperature=min(0.2, max(0.0, float(os.environ.get("TEMPERATURE", 0.1)))),
+            max_body_bytes=max_body,
+            model_timeout=max(5.0, _number("MODEL_TIMEOUT", 60.0, float)),
+            temperature=min(0.2, max(0.0, _number("TEMPERATURE", 0.1, float))),
         )
+
+
+MIN_BODY_BYTES = 64 * 1024
+log = logging.getLogger("forganizer")
+
+
+def _number(name: str, default, cast):
+    """Reads a numeric env var; empty or malformed values fall back to the default."""
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return cast(raw)
+    except ValueError:
+        log.warning("%s=%r is not a number, using %s", name, raw, default)
+        return default

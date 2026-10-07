@@ -106,7 +106,11 @@ class HttpPlanApi(
                 }
                 503, 502, 504 -> throw AiUnavailableException("ИИ временно недоступен")
                 401 -> throw AiRequestException(401, "Сервер ${host()} отклонил токен приложения: APP_TOKEN в сборке не совпадает с APP_TOKEN на сервере")
-                413 -> throw AiRequestException(413, "Слишком большой запрос")
+                413 -> throw AiRequestException(
+                    413,
+                    "Сервер ${host()} отклонил запрос как слишком большой (${json.toByteArray().size / 1024 + 1} КБ). " +
+                        "Проверьте MAX_BODY_BYTES на сервере: нужно 524288 (или удалите эту переменную).",
+                )
                 400 -> throw AiRequestException(400, "Сервер не принял формат запроса")
                 404 -> throw AiRequestException(
                     404,
