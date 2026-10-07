@@ -1,5 +1,6 @@
 package com.forganizer.app.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -10,6 +11,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -106,12 +108,17 @@ fun SettingsScreen(vm: MainViewModel, state: UiState) {
                 }
                 Switch(checked = s.allowExisting, onCheckedChange = { v -> vm.updateSettings { it.copy(allowExisting = v) } })
             }
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { vm.updateSettings { it.copy(peekArchives = !s.peekArchives) } },
+            ) {
+                Checkbox(checked = s.peekArchives, onCheckedChange = { v -> vm.updateSettings { it.copy(peekArchives = v) } })
                 Column(Modifier.weight(1f)) {
                     Text("Заглядывать в zip-архивы")
                     Hint("Для zip отправляется краткая сводка имён внутри (число файлов, корневые папки, типы). Содержимое файлов не читается. Помогает отличить проект с кодом от книг и документов.")
                 }
-                Switch(checked = s.peekArchives, onCheckedChange = { v -> vm.updateSettings { it.copy(peekArchives = v) } })
             }
             HorizontalDivider()
             OutlinedTextField(
