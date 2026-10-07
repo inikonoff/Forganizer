@@ -49,4 +49,31 @@ class AiPlannerTest {
         assertEquals(1, batches.count { b -> b.any { it.id in group } })
         assertEquals(summary.objects.size, batches.sumOf { it.size })
     }
+
+    @Test fun oneFailedBatchKeepsTheRestAndAllFailedThrows() = runBlocking {
+        val names = (1..300).map { i -> file("id$i", "file${i}_${listOf("alpha", "beta", "gamma")[i % 3]}word$i.dat", modified = i * 3_600_000L) }
+        val summary = Clusterer(Rules.DEFAULT, ZoneOffset.UTC).summarize(names)
+        var phase2Calls = 0
+        val api = FakeApi { r ->
+            when (r.phase) {
+                1 -> RawPlan(folders = listOf(FolderDto("Данные")))
+                else -> {
+                    phase2Calls++
+                    if (phase2Calls == 2) throw AiUnavailableException("down")
+                    RawPlan(emptyList(), r.files.map { AssignmentDto(it.id, "Данные", null, "", 0.9) } + r.clusters.map { AssignmentDto(it.id, "Данные", null, "", 0.9) })
+                }
+            }
+        }
+        val res = AiPlanner(api).plan(summary, emptyList(), false)
+        assertEquals(1, res.failedBatches)
+        assertTrue(res.totalBatches > 1)
+        val all = res.plan.assignments.map { it.ref } + res.plan.leave.map { it.ref }
+        assertEquals(summary.objects.map { it.id }.sorted(), all.sorted())
+        assertTrue(res.plan.leave.any { it.reason == Reasons.AI_NO_ANSWER })
+
+        val dead = FakeApi { r -> if (r.phase == 1) RawPlan(folders = listOf(FolderDto("Данные"))) else throw AiUnavailableException("down") }
+        try {
+            AiPlanner(dead).plan(summary, emptyList(), false); error("must throw")
+        } catch (e: AiUnavailableException) { }
+    }
 }

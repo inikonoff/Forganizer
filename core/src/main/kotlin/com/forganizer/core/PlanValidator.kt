@@ -30,6 +30,7 @@ object Reasons {
     const val EXISTING_FORBIDDEN = "Назначение в существующую папку отключено"
     const val UNKNOWN_FOLDER = "Папка не из предложенного списка"
     const val BAD_PATH = "Недопустимое имя папки"
+    const val AI_NO_ANSWER = "ИИ не ответил, запустите анализ ещё раз"
 }
 
 object FolderNames {

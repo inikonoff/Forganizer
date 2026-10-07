@@ -64,3 +64,42 @@ def test_diag_reports_missing_key():
     res = run(p.diagnose())
     assert res[0]["ok"] is True
     assert res[1]["ok"] is False and "OPENROUTER_API_KEY" in res[1]["error"]
+
+
+def test_gpt_oss_gets_low_reasoning_and_optional_params_are_dropped_on_400():
+    seen = []
+
+    def handler(request):
+        import json as _json
+
+        body = _json.loads(request.content)
+        seen.append(sorted(k for k in body if k in ("response_format", "reasoning_effort")))
+        if "response_format" in body or "reasoning_effort" in body:
+            return httpx.Response(400, json={"error": {"code": "json_validate_failed", "message": "x"}})
+        return httpx.Response(200, json=OK_BODY)
+
+    p = planner(handler)
+    assert run(p._http_completion(ModelSpec("groq", "openai/gpt-oss-120b"), [], True)) == "{}"
+    assert seen[0] == ["reasoning_effort", "response_format"]
+    assert seen[1] == ["reasoning_effort"] and seen[2] == []
+
+
+def test_other_models_get_no_reasoning_param():
+    bodies = []
+
+    def handler(request):
+        import json as _json
+
+        bodies.append(_json.loads(request.content))
+        return httpx.Response(200, json=OK_BODY)
+
+    p = planner(handler)
+    run(p._http_completion(ModelSpec("groq", "llama-x"), [], True))
+    assert "reasoning_effort" not in bodies[0]
+
+
+def test_error_code_is_extracted():
+    p = planner(lambda req: httpx.Response(400, json={"error": {"code": "json_validate_failed", "message": "secret text"}}))
+    with pytest.raises(ProviderError) as e:
+        run(p._http_completion(ModelSpec("groq", "llama-x"), [], True))
+    assert e.value.code == "json_validate_failed"

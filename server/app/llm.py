@@ -31,9 +31,10 @@ class AllModelsFailed(Exception):
 
 
 class ProviderError(Exception):
-    def __init__(self, message: str, status: Optional[int] = None, detail: str = ""):
+    def __init__(self, message: str, status: Optional[int] = None, detail: str = "", code: str = ""):
         super().__init__(message)
         self.status = status
+        self.code = code  # short machine code such as "json_validate_failed"; safe to log
         self.detail = detail  # provider error text; shown only by /diag (fixed harmless prompt), never logged
 
 
@@ -135,7 +136,7 @@ class Planner:
                         },
                     ]
                 except ProviderError as e:
-                    log.info("model=%s provider_error status=%s", spec.model, e.status)
+                    log.info("model=%s provider_error status=%s code=%s", spec.model, e.status, e.code or "-")
                     break
                 except httpx.HTTPError as e:
                     log.info("model=%s network_error=%s", spec.model, type(e).__name__)
@@ -194,16 +195,20 @@ class Planner:
         }
         if json_mode:
             body["response_format"] = {"type": "json_object"}
+        if spec.provider == "groq" and "gpt-oss" in spec.model:
+            # Reasoning models otherwise spend the whole output budget on thinking and return no JSON.
+            body["reasoning_effort"] = "low"
         headers = {"Authorization": f"Bearer {self.settings.api_keys.get(spec.provider, '')}"}
         if spec.provider == "openrouter":
             headers["X-Title"] = "Forganizer"
         r = await self._post(spec, body, headers)
-        if r.status_code == 400 and json_mode:
-            # Some free models reject response_format; retry once without it.
-            body.pop("response_format", None)
-            r = await self._post(spec, body, headers)
+        for optional in ("response_format", "reasoning_effort"):
+            # Some models reject optional parameters; drop them one by one and retry.
+            if r.status_code == 400 and optional in body:
+                body.pop(optional)
+                r = await self._post(spec, body, headers)
         if r.status_code != 200:
-            raise ProviderError(f"status {r.status_code}", r.status_code, _error_text(r))
+            raise ProviderError(f"status {r.status_code}", r.status_code, _error_text(r), _error_code(r))
         try:
             return r.json()["choices"][0]["message"]["content"] or ""
         except (KeyError, IndexError, TypeError, ValueError) as e:
@@ -212,6 +217,17 @@ class Planner:
 
 MAX_RATE_RETRIES = 2
 MAX_RATE_WAIT = 30.0
+
+
+def _error_code(r: httpx.Response) -> str:
+    """Short error code from the provider payload (no user data), for logs."""
+    try:
+        err = r.json().get("error")
+        if isinstance(err, dict):
+            return str(err.get("code") or err.get("type") or "")[:40]
+    except Exception:
+        pass
+    return ""
 
 
 def _error_text(r: httpx.Response) -> str:

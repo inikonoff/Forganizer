@@ -304,7 +304,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val res = AiPlanner(app.api).plan(sum, existing, s.allowExisting) { done, total ->
                 stats { it.copy(aiDone = done, aiTotal = total) }
             }
-            showPlan(OrganizePlan.build(sum, res.plan, existing, s.allowExisting), aiEmpty = res.plan.noConfident && sum.objects.isNotEmpty())
+            val partial = if (res.failedBatches > 0) {
+                "ИИ не ответил на ${res.failedBatches} из ${res.totalBatches} запросов, эти файлы в блоке «Не определено». Запустите анализ ещё раз, чтобы разобрать их."
+            } else null
+            showPlan(
+                OrganizePlan.build(sum, res.plan, existing, s.allowExisting),
+                aiEmpty = res.plan.noConfident && sum.objects.isNotEmpty(),
+                extraNote = partial,
+            )
         } catch (e: AiUnavailableException) {
             _state.update { it.copy(scanError = e.message ?: "ИИ временно недоступен") }
         } catch (e: AiRequestException) {
@@ -326,7 +333,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         showPlan(OrganizePlan.build(sum, ai, result.existingFolders.map { it.name }, s.allowExisting), aiEmpty = false)
     }
 
-    private fun showPlan(plan: OrganizePlan, aiEmpty: Boolean) {
+    private fun showPlan(plan: OrganizePlan, aiEmpty: Boolean, extraNote: String? = null) {
         val s = PlanSession(plan, _state.value.settings.allowExisting)
         session = s
         planId = UUID.randomUUID().toString()
@@ -334,7 +341,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _state.update {
             it.copy(
                 screen = Screen.PICTURE, scanError = null, fromSaved = false, refine = RefineState(),
-                aiNote = if (aiEmpty) "Не нашлось уверенных рекомендаций" else null,
+                aiNote = if (aiEmpty) "Не нашлось уверенных рекомендаций" else extraNote,
             )
         }
         publish()

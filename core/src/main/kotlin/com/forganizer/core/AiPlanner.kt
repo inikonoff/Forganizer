@@ -3,6 +3,9 @@ package com.forganizer.core
 data class PlannerResult(
     val taxonomy: List<PlanFolder>,
     val plan: ValidatedPlan,
+    /** Phase-2 requests the AI did not answer; their objects are in "leave". */
+    val failedBatches: Int = 0,
+    val totalBatches: Int = 0,
 )
 
 /**
@@ -11,8 +14,9 @@ data class PlannerResult(
  */
 class AiPlanner(
     private val api: PlanApi,
-    private val singlePassLimit: Int = 100,
-    private val batchSize: Int = 100,
+    private val singlePassLimit: Int = 60,
+    private val batchSize: Int = 60,
+    private val taxonomySample: Int = 100,
 ) {
     suspend fun plan(
         summary: Summary,
@@ -35,7 +39,7 @@ class AiPlanner(
         val batches = batches(summary)
         val total = batches.size + 1
         onProgress(0, total)
-        val phase1Objects = summary.clusters + summary.singles.take(batchSize)
+        val phase1Objects = summary.clusters + summary.singles.take(taxonomySample)
         val req1 = request(1, phase1Objects, existingFolders, allowExisting, null)
         val taxonomy = validator.validateTaxonomy(api.plan(req1))
         onProgress(1, total)
@@ -44,22 +48,34 @@ class AiPlanner(
         val assignments = mutableListOf<PlanAssignment>()
         val leave = mutableListOf<PlanLeave>()
         var current = taxonomy
+        var failed = 0
+        var lastError: AiUnavailableException? = null
         batches.forEachIndexed { i, batch ->
-            val req = request(2, batch, existingFolders, allowExisting, current.map { it.name })
-            val p = validator.validate(req, api.plan(req), current)
-            p.folders.forEach { folders.putIfAbsent(FolderNames.key(it.name), it) }
-            // New folders proposed in a batch extend the taxonomy for the next batches.
-            current = (current + p.folders.filter { !it.existing }).distinctBy { FolderNames.key(it.name) }
-            assignments += p.assignments
-            leave += p.leave
+            try {
+                val req = request(2, batch, existingFolders, allowExisting, current.map { it.name })
+                val p = validator.validate(req, api.plan(req), current)
+                p.folders.forEach { folders.putIfAbsent(FolderNames.key(it.name), it) }
+                // New folders proposed in a batch extend the taxonomy for the next batches.
+                current = (current + p.folders.filter { !it.existing }).distinctBy { FolderNames.key(it.name) }
+                assignments += p.assignments
+                leave += p.leave
+            } catch (e: AiUnavailableException) {
+                // One flaky request must not throw away the whole analysis.
+                failed++
+                lastError = e
+                batch.forEach { leave += PlanLeave(it.id, Reasons.AI_NO_ANSWER) }
+            }
             onProgress(i + 2, total)
         }
+        if (failed == batches.size) throw lastError ?: AiUnavailableException("ИИ временно недоступен")
         // A bundle that ended up split across batches goes to leave as a whole.
         val (kept, extra) = PlanValidator.enforceBundles(assignments)
         val used = kept.map { FolderNames.key(it.folder) }.toSet()
         return PlannerResult(
             current,
             ValidatedPlan(folders.values.filter { FolderNames.key(it.name) in used }, kept, leave + extra),
+            failedBatches = failed,
+            totalBatches = batches.size,
         )
     }
 
