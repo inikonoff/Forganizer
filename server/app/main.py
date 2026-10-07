@@ -45,6 +45,7 @@ def create_app(settings: Optional[Settings] = None, completion: Optional[Complet
     @app.get("/health")
     @app.head("/health")
     @app.get("/ping")
+    @app.head("/ping")
     async def health():
         return {
             "status": "ok",

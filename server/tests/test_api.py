@@ -63,6 +63,7 @@ def test_health():
         body = r.json()
         assert body["status"] == "ok" and body["service"] == "forganizer" and body["uptime"] >= 0
     assert c.head("/health").status_code == 200
+    assert c.head("/ping").status_code == 200  # UptimeRobot free plan sends HEAD
     # health needs no token and never reaches a model
     assert c.get("/health", headers={"X-App-Token": "bad"}).status_code == 200
 
