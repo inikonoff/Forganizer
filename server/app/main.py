@@ -42,6 +42,8 @@ def create_app(settings: Optional[Settings] = None, completion: Optional[Complet
 
     # Keep-alive for the free Render tier: GET/HEAD /health and the /ping alias.
     # Static answer, no model or provider calls; uptime is cheap to compute.
+    @app.get("/")
+    @app.head("/")
     @app.get("/health")
     @app.head("/health")
     @app.get("/ping")

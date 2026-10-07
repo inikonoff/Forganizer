@@ -18,7 +18,7 @@ PROVIDER_URLS = {
     "groq": "https://api.groq.com/openai/v1/chat/completions",
 }
 
-DEFAULT_MODELS = "openrouter:meta-llama/llama-3.3-70b-instruct:free,groq:llama-3.3-70b-versatile"
+DEFAULT_MODELS = "groq:openai/gpt-oss-120b,groq:openai/gpt-oss-20b,openrouter:google/gemma-4-31b-it:free"
 
 
 def parse_models(raw: str) -> list[ModelSpec]:
