@@ -11,6 +11,12 @@ import com.forganizer.core.RefineApi
 import com.forganizer.core.RefineRequest
 import com.forganizer.core.ServerUrl
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -44,26 +50,57 @@ class HttpPlanApi(
 
     private fun host(): String = base().toHttpUrlOrNull()?.host ?: base().ifEmpty { "(адрес не задан)" }
 
-    /** Checks the configured address and explains in plain words what is wrong. */
+    /** Checks the configured address and the models behind it, in plain words. */
     suspend fun check(): String {
         val request = try {
             Request.Builder().url(url("/health")).get().build()
         } catch (e: IllegalArgumentException) {
             return "Некорректный адрес сервера: ${base().ifEmpty { "(пусто)" }}"
         }
-        return try {
+        val health: Pair<Boolean, String> = try {
             execute(request).use { r ->
                 val body = r.body?.string().orEmpty()
                 when {
-                    r.code == 200 && body.contains("\"status\"") -> "Сервер отвечает: ${host()}\n${body.take(160)}"
+                    r.code == 200 && body.contains("\"status\"") -> true to "Сервер отвечает: ${host()}"
                     r.header("x-render-routing") == "no-server" ->
-                        "Сервис ${host()} не найден на Render (404). Проверьте адрес: он должен совпадать с адресом вашего сервиса."
-                    else -> "${host()} ответил ${r.code}. Это не сервер Forganizer или адрес указан неверно."
+                        false to "Сервис ${host()} не найден на Render (404). Проверьте адрес: он должен совпадать с адресом вашего сервиса."
+                    else -> false to "${host()} ответил ${r.code}. Это не сервер Forganizer или адрес указан неверно."
                 }
             }
         } catch (e: IOException) {
-            "Не удалось подключиться к ${host()}: ${e.message ?: e.javaClass.simpleName}. Бесплатный сервер Render может просыпаться до минуты, повторите проверку."
+            false to "Не удалось подключиться к ${host()}: ${e.message ?: e.javaClass.simpleName}. Бесплатный сервер Render может просыпаться до минуты, повторите проверку."
         }
+        return if (health.first) health.second + "\n\nМодели ИИ:\n" + diagnoseModels() else health.second
+    }
+
+    /** Asks the server which configured models answer right now (POST /diag). */
+    private suspend fun diagnoseModels(): String = try {
+        val req = Request.Builder().url(url("/diag")).header("X-App-Token", token)
+            .post("".toRequestBody(jsonType)).build()
+        execute(req).use { r ->
+            val text = r.body?.string().orEmpty()
+            when (r.code) {
+                200 -> {
+                    val models = ProtocolJson.parseToJsonElement(text).jsonObject["models"]?.jsonArray.orEmpty()
+                    if (models.isEmpty()) {
+                        "на сервере не заданы модели (переменная MODELS)"
+                    } else {
+                        models.joinToString("\n") { m ->
+                            val o = m.jsonObject
+                            val name = o["model"]?.jsonPrimitive?.contentOrNull ?: "?"
+                            val ms = o["ms"]?.jsonPrimitive?.intOrNull ?: 0
+                            val err = o["error"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                            if (o["ok"]?.jsonPrimitive?.booleanOrNull == true) "✓ $name (${"%.1f".format(ms / 1000.0)} с)" else "✗ $name: $err"
+                        }
+                    }
+                }
+                401 -> "токен приложения не совпадает с APP_TOKEN на сервере"
+                404 -> "диагностика недоступна, обновите сервер"
+                else -> "диагностика: ответ ${r.code}"
+            }
+        }
+    } catch (e: Exception) {
+        "диагностика не выполнена: ${e.message ?: e.javaClass.simpleName}"
     }
 
     /** Wakes up a sleeping free-tier server before the real request. */

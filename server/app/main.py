@@ -96,6 +96,14 @@ def create_app(settings: Optional[Settings] = None, completion: Optional[Complet
                 request.url.path, status, size, (time.monotonic() - started) * 1000, model,
             )
 
+    @app.post("/diag")
+    async def diag(request: Request):
+        """Token-protected model check: which configured models answer right now."""
+        token = request.headers.get("x-app-token", "")
+        if not settings.app_token or not hmac.compare_digest(token, settings.app_token):
+            return error(401, "unauthorized", "Неверный токен приложения")
+        return {"models": await planner.diagnose()}
+
     @app.post("/plan")
     async def plan(request: Request):
         return await handle(request, PlanRequest, planner.plan, lambda r: r.model_dump())

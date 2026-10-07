@@ -146,3 +146,23 @@ def test_settings_from_env_is_tolerant(monkeypatch):
 
     monkeypatch.setenv("MAX_BODY_BYTES", "1048576")
     assert Settings.from_env().max_body_bytes == 1048576
+
+
+def test_diag_requires_token_and_reports_each_model():
+    from app.llm import ProviderError
+
+    c = client(['{"ok": true}', ProviderError("x", 429, "rate limited")])
+    assert c.post("/diag").status_code == 401
+    r = c.post("/diag", headers={"X-App-Token": TOKEN})
+    assert r.status_code == 200
+    m = r.json()["models"]
+    assert [x["model"] for x in m] == ["m1", "m2"]
+    assert m[0]["ok"] is True
+    assert m[1]["ok"] is False and "429" in m[1]["error"] and "rate limited" in m[1]["error"]
+
+
+def test_provider_status_is_kept():
+    from app.llm import ProviderError
+
+    e = ProviderError("status 404", 404, "No endpoints found")
+    assert e.status == 404 and e.detail == "No endpoints found"
