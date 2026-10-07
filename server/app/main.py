@@ -20,6 +20,9 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 log = logging.getLogger("forganizer")
 
 
+APP_VERSION = "0.2"
+
+
 def error(status: int, code: str, message: str) -> JSONResponse:
     return JSONResponse(status_code=status, content={"error": code, "message": message})
 
@@ -35,10 +38,20 @@ def create_app(settings: Optional[Settings] = None, completion: Optional[Complet
 
     app = FastAPI(title="Forganizer", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
 
+    started_at = time.time()
+
+    # Keep-alive for the free Render tier: GET/HEAD /health and the /ping alias.
+    # Static answer, no model or provider calls; uptime is cheap to compute.
     @app.get("/health")
     @app.head("/health")
+    @app.get("/ping")
     async def health():
-        return {"status": "ok"}
+        return {
+            "status": "ok",
+            "service": "forganizer",
+            "version": APP_VERSION,
+            "uptime": int(time.time() - started_at),
+        }
 
     async def handle(request: Request, schema, run, dump) -> JSONResponse | dict:
         started = time.monotonic()
