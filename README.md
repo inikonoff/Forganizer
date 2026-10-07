@@ -28,9 +28,24 @@ Workflow `.github/workflows/android.yml` на каждый push в `main` про
 
 Без keystore release-APK подписывается debug-ключом (устанавливается, но не подходит для публикации).
 
-Создать keystore:
+Создать keystore можно двумя способами.
+
+**Вручную** (нужен компьютер с JDK):
 ```bash
 keytool -genkeypair -v -keystore release.jks -alias forganizer -keyalg RSA -keysize 2048 -validity 10000
+```
+
+**Через GitHub Actions** (подойдёт и с телефона), workflow `Generate release keystore`:
+1. Создайте токен: GitHub → Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token. Срок 7 дней, Repository access: Only select repositories → Forganizer, Repository permissions → **Secrets: Read and write**.
+2. В репозитории (Settings → Secrets and variables → Actions → Secrets) создайте два секрета: `SECRETS_PAT` (этот токен) и `BACKUP_PASSPHRASE` (ваша парольная фраза от 12 символов, сохраните её в менеджере паролей).
+3. Actions → Generate release keystore → Run workflow. Workflow создаст ключ со случайным паролем, сам запишет секреты `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD` и приложит **зашифрованную** резервную копию.
+4. Сразу скачайте артефакт `forganizer-keystore-backup` (хранится 7 дней) и сохраните вместе с `BACKUP_PASSPHRASE`. Секреты GitHub обратно прочитать нельзя: без копии потерянный ключ не восстановить, а приложение не получится обновить.
+5. Токен `SECRETS_PAT` после этого отзовите и удалите секрет.
+
+Пароли в логи не выводятся. Если секреты подписи уже есть, workflow откажется их заменять, пока не включён флаг `overwrite`. Расшифровка копии на компьютере:
+```bash
+openssl enc -d -aes-256-cbc -pbkdf2 -iter 600000 -in forganizer-keystore-backup.enc -out bundle.tar
+tar -xf bundle.tar   # release.jks и credentials.txt
 ```
 
 Локально: `./gradlew assembleFullDebug` (нужен Android SDK).
