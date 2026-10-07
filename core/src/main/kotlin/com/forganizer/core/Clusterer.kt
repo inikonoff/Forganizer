@@ -106,8 +106,10 @@ class Clusterer(
                 while (j + 1 < sorted.size && sorted[j + 1].modified - sorted[i].modified <= 60_000) j++
                 val window = sorted.subList(i, j + 1)
                 if (window.size >= minSize) {
-                    groups += "$type: ${window.size} шт. за 1 минуту" to window.toList()
-                    window.forEach { used += it.id }
+                    // Files that merely arrived at the same time but have another name go back to singles.
+                    val core = dominantByLeadingWord(window, minSize) ?: window
+                    groups += "$type: ${core.size} шт. за 1 минуту" to core.toList()
+                    core.forEach { used += it.id }
                     i = j + 1
                 } else i++
             }
@@ -138,6 +140,19 @@ class Clusterer(
         return Summary(objects, local, bundleCandidates(singles))
     }
 
+    /**
+     * If one leading word (e.g. "Lightroom") covers at least 70% of a burst, returns just those files so
+     * that unrelated files downloaded at the same moment are not classified together with them.
+     */
+    private fun dominantByLeadingWord(window: List<FileNode>, minSize: Int): List<FileNode>? {
+        val top = window.groupBy { leadingWord(it.name) }.maxByOrNull { it.value.size } ?: return null
+        if (top.key.length < 4 || top.value.size == window.size) return null
+        return if (top.value.size >= minSize && top.value.size * 10 >= window.size * 7) top.value else null
+    }
+
+    private fun leadingWord(name: String): String =
+        LEADING_WORD.find(baseName(name))?.value?.lowercase().orEmpty()
+
     private fun date(ms: Long): String = dateFmt.format(Instant.ofEpochMilli(ms).atZone(zone))
 
     /** Union of single files that share a distinctive word in their names. */
@@ -167,6 +182,8 @@ class Clusterer(
     companion object {
         private val SERIES = Regex("""^(.*?)\s*\((\d{1,4})\)$""")
         /** "project-main-3": a hyphen and a short number; only counts as a series with 5+ members. */
+        /** "Lightroom" in LightroomFujiPreset, "Heller" in "Heller Peter. ...", "grok" in grok_123. */
+        private val LEADING_WORD = Regex("""^\p{Lu}?\p{Ll}+""")
         private val SERIES_DASH = Regex("""^(.*\S)-(\d{1,2})$""")
 
         private fun seriesMatch(name: String): MatchResult? = SERIES.matchEntire(name) ?: SERIES_DASH.matchEntire(name)

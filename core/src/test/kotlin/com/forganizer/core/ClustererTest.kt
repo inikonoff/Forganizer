@@ -56,4 +56,25 @@ class ClustererTest {
         // three similar notes are not enough for a cluster
         assertEquals(3, s.singles.count { it.file.name.startsWith("TZ_folder_organizer") })
     }
+
+    @Test fun unrelatedFilesInABurstAreReleased() {
+        val t = 5_000_000_000L
+        val files = (1..12).map { file("l$it", "LightroomPreset${it}Pro.zip", modified = t + it * 1000L) } +
+            listOf(
+                file("h1", "Heller Peter. The Dog Stars - royallib.com.txt.zip", modified = t + 13_000L),
+                file("h2", "Heller Peter. The Dog Stars - royallib.com.txt-1.zip", modified = t + 14_000L),
+            )
+        val s = clusterer.summarize(files)
+        val c = s.clusters.single()
+        assertEquals(12, c.dto.count)
+        assertTrue(c.members.all { it.name.startsWith("Lightroom") })
+        assertEquals(setOf("h1", "h2"), s.singles.map { it.file.id }.toSet())
+    }
+
+    @Test fun diverseBurstOfPhotosStaysOneCluster() {
+        val t = 5_000_000_000L
+        val names = listOf("P5102198", "P5102241", "DSC_4151", "P5107827", "P5107909", "P5107916", "P5108104", "P5233103")
+        val s = clusterer.summarize(names.mapIndexed { i, n -> file("p$i", "$n.jpg", modified = t + i * 2000L) })
+        assertEquals(8, s.clusters.single().dto.count)
+    }
 }
