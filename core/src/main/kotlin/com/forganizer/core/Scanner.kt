@@ -10,6 +10,9 @@ data class ScanResult(
     val files: List<FileNode>,
     val existingFolders: List<FileNode>,
     val skipped: Int,
+    /** Root entries the scan ignored (hidden, ignored extensions or folders); kept only for the folder dump. */
+    val ignoredFiles: List<FileNode> = emptyList(),
+    val ignoredFolders: List<FileNode> = emptyList(),
 )
 
 /** Lists only the root of the selected folder (no recursion into existing folders). */
@@ -25,6 +28,8 @@ class Scanner(private val source: FileSource) {
             files = files.sortedBy { it.name.lowercase() },
             existingFolders = dirs.sortedBy { it.name.lowercase() },
             skipped = listing.skipped,
+            ignoredFiles = listing.nodes.filter { !it.isDir && it !in files }.sortedBy { it.name.lowercase() },
+            ignoredFolders = listing.nodes.filter { it.isDir && it !in dirs }.sortedBy { it.name.lowercase() },
         )
     }
 }

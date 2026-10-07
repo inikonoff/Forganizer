@@ -4,6 +4,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -85,6 +86,13 @@ fun PictureScreen(vm: MainViewModel, state: UiState) {
     val saveText = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) {
         ExportHelper.save(context, it, vm.exportText())
     }
+    val saveDumpText = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) {
+        ExportHelper.save(context, it, vm.dumpText())
+    }
+    val saveDumpJson = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) {
+        ExportHelper.save(context, it, vm.dumpJson())
+    }
+    var dumpMenu by remember { mutableStateOf(false) }
     val checked = plan.checkedItems.size
     // Folders are collapsed by default; the set holds the keys of the open ones.
     var openKeys by rememberSaveable { mutableStateOf(emptyList<String>()) }
@@ -160,6 +168,24 @@ fun PictureScreen(vm: MainViewModel, state: UiState) {
                     Hint("Папок: ${plan.folders.size}, файлов в плане: ${plan.items.size}, не определено: ${plan.leave.size}")
                     Hint("Записи с уверенностью ниже 70% по умолчанию не выбраны.")
                     Hint("Нажмите на папку, чтобы увидеть файлы. У свёрнутой папки красным показано, сколько файлов не выбрано.")
+                    Box {
+                        OutlinedButton(onClick = { dumpMenu = true }) { Text("Снимок папки") }
+                        DropdownMenu(expanded = dumpMenu, onDismissRequest = { dumpMenu = false }) {
+                            DropdownMenuItem(text = { Text("Сохранить текстом в файл") }, onClick = {
+                                dumpMenu = false; saveDumpText.launch(vm.dumpFileName("txt"))
+                            })
+                            DropdownMenuItem(text = { Text("Сохранить JSON в файл") }, onClick = {
+                                dumpMenu = false; saveDumpJson.launch(vm.dumpFileName("json"))
+                            })
+                            DropdownMenuItem(text = { Text("Поделиться текстом") }, onClick = {
+                                dumpMenu = false; ExportHelper.share(context, vm.dumpFileName("txt"), "text/plain", vm.dumpText())
+                            })
+                            DropdownMenuItem(text = { Text("Поделиться JSON") }, onClick = {
+                                dumpMenu = false; ExportHelper.share(context, vm.dumpFileName("json"), "application/json", vm.dumpJson())
+                            })
+                        }
+                    }
+                    Hint("Снимок: список файлов и папок до сортировки (имена, размеры, даты). Сами файлы не копируются.")
                     state.aiNote?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 }
             }

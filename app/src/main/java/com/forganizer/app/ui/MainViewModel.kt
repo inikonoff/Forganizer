@@ -25,7 +25,9 @@ import com.forganizer.core.Applier
 import com.forganizer.core.Clusterer
 import com.forganizer.core.ConflictMode
 import com.forganizer.core.Conflicts
+import com.forganizer.core.DumpDoc
 import com.forganizer.core.DuplicateFinder
+import com.forganizer.core.FolderDump
 import com.forganizer.core.FileNode
 import com.forganizer.core.FileSource
 import com.forganizer.core.FolderNames
@@ -61,6 +63,9 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -131,6 +136,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var source: FileSource? = null
     private var root: NodeRef? = null
     private var scan: ScanResult? = null
+    private var scanTime: Long = 0
     private var summary: Summary? = null
     private var session: PlanSession? = null
     private var planId: String = UUID.randomUUID().toString()
@@ -272,6 +278,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     Scanner(src).scan(rootRef, ScanSettings(s.ignoreExtensions.toSet(), s.ignoreFolders.toSet()))
                 }
                 scan = result
+                scanTime = System.currentTimeMillis()
                 val peeks = if (s.peekArchives) {
                     stats { it.copy(stage = "Заглядываю в архивы", files = result.files.size, skipped = result.skipped) }
                     withContext(Dispatchers.IO) {
@@ -541,6 +548,35 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 null
             } else FileBackend(app)
         }
+
+    /** Snapshot of the selected folder as it was before sorting (names, sizes, dates only). */
+    private fun buildDump(): DumpDoc? {
+        val st = _state.value
+        val s = scan
+        if (s != null) {
+            return FolderDump.build(
+                root = st.rootLabel, takenAt = scanTime, files = s.files, folders = s.existingFolders,
+                ignoredFiles = s.ignoredFiles, ignoredFolders = s.ignoredFolders, skipped = s.skipped,
+                duplicates = st.duplicates, rules = app.rules, source = "сканирование до сортировки",
+            )
+        }
+        val p = st.plan ?: return null
+        return FolderDump.build(
+            root = st.rootLabel, takenAt = System.currentTimeMillis(),
+            files = p.items.map { it.file } + p.leave.map { it.file },
+            folders = p.existingFolders.map { FileNode(it, it, 0, 0, null, true) },
+            rules = app.rules, source = "сохранённая схема (только файлы из схемы)",
+        )
+    }
+
+    fun dumpJson(): String = buildDump()?.let(FolderDump::toJson) ?: "{}"
+    fun dumpText(): String = buildDump()?.let { FolderDump.toText(it) } ?: ""
+
+    fun dumpFileName(ext: String): String {
+        val base = _state.value.rootLabel.replace(Regex("[^A-Za-zА-Яа-яЁё0-9._-]+"), "_").trim('_').ifEmpty { "folder" }
+        val stamp = SimpleDateFormat("yyyyMMdd-HHmm", Locale.US).format(Date())
+        return "forganizer-snapshot-$base-$stamp.$ext"
+    }
 
     fun exportJson(): String = _state.value.plan?.let { PlanExport.toJson(_state.value.rootLabel, it) } ?: "{}"
     fun exportText(): String = _state.value.plan?.let { PlanExport.toText(_state.value.rootLabel, it) } ?: ""
