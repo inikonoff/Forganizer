@@ -9,9 +9,11 @@ import com.forganizer.core.RawPatch
 import com.forganizer.core.RawPlan
 import com.forganizer.core.RefineApi
 import com.forganizer.core.RefineRequest
+import com.forganizer.core.ServerUrl
 import kotlinx.coroutines.suspendCancellableCoroutine
 import okhttp3.Call
 import okhttp3.Callback
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -36,7 +38,33 @@ class HttpPlanApi(
 
     private val jsonType = "application/json; charset=utf-8".toMediaType()
 
-    private fun url(path: String) = baseUrl().trimEnd('/') + path
+    private fun base() = ServerUrl.normalize(baseUrl())
+
+    private fun url(path: String) = base() + path
+
+    private fun host(): String = base().toHttpUrlOrNull()?.host ?: base().ifEmpty { "(адрес не задан)" }
+
+    /** Checks the configured address and explains in plain words what is wrong. */
+    suspend fun check(): String {
+        val request = try {
+            Request.Builder().url(url("/health")).get().build()
+        } catch (e: IllegalArgumentException) {
+            return "Некорректный адрес сервера: ${base().ifEmpty { "(пусто)" }}"
+        }
+        return try {
+            execute(request).use { r ->
+                val body = r.body?.string().orEmpty()
+                when {
+                    r.code == 200 && body.contains("\"status\"") -> "Сервер отвечает: ${host()}\n${body.take(160)}"
+                    r.header("x-render-routing") == "no-server" ->
+                        "Сервис ${host()} не найден на Render (404). Проверьте адрес: он должен совпадать с адресом вашего сервиса."
+                    else -> "${host()} ответил ${r.code}. Это не сервер Forganizer или адрес указан неверно."
+                }
+            }
+        } catch (e: IOException) {
+            "Не удалось подключиться к ${host()}: ${e.message ?: e.javaClass.simpleName}. Бесплатный сервер Render может просыпаться до минуты, повторите проверку."
+        }
+    }
 
     /** Wakes up a sleeping free-tier server before the real request. */
     suspend fun warmUp() {
@@ -54,11 +82,15 @@ class HttpPlanApi(
         }
 
     private suspend fun <T> post(path: String, json: String, decode: (String) -> T): T {
-        val http = Request.Builder()
-            .url(url(path))
-            .header("X-App-Token", token)
-            .post(json.toRequestBody(jsonType))
-            .build()
+        val http = try {
+            Request.Builder()
+                .url(url(path))
+                .header("X-App-Token", token)
+                .post(json.toRequestBody(jsonType))
+                .build()
+        } catch (e: IllegalArgumentException) {
+            throw AiRequestException(0, "Некорректный адрес сервера (${base().ifEmpty { "пусто" }}). Укажите его в Настройках.")
+        }
         val response = try {
             execute(http)
         } catch (e: IOException) {
@@ -73,11 +105,18 @@ class HttpPlanApi(
                     throw AiUnavailableException("Сервер вернул некорректный ответ")
                 }
                 503, 502, 504 -> throw AiUnavailableException("ИИ временно недоступен")
-                401 -> throw AiRequestException(401, "Сервер отклонил токен приложения")
+                401 -> throw AiRequestException(401, "Сервер ${host()} отклонил токен приложения: APP_TOKEN в сборке не совпадает с APP_TOKEN на сервере")
                 413 -> throw AiRequestException(413, "Слишком большой запрос")
                 400 -> throw AiRequestException(400, "Сервер не принял формат запроса")
-                404 -> throw AiRequestException(404, "Сервер не поддерживает эту функцию, обновите его")
-                else -> throw AiUnavailableException("Ошибка сервера (${r.code})")
+                404 -> throw AiRequestException(
+                    404,
+                    if (r.header("x-render-routing") == "no-server") {
+                        "Сервис ${host()} не найден на Render. Проверьте адрес сервера в Настройках."
+                    } else {
+                        "Сервер ${host()} не знает путь $path. Проверьте адрес сервера в Настройках или обновите сервер."
+                    },
+                )
+                else -> throw AiUnavailableException("Ошибка сервера ${host()} (${r.code})")
             }
         }
     }

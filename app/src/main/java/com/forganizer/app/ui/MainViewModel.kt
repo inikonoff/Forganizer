@@ -605,6 +605,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun updateSettings(f: (AppSettings) -> AppSettings) = viewModelScope.launch { app.settings.update(f) }
 
+    fun checkServer() {
+        _state.update { it.copy(message = "Проверяю соединение…") }
+        viewModelScope.launch {
+            val result = app.api.check()
+            _state.update { it.copy(message = result) }
+        }
+    }
+
     fun revokeConsent() = viewModelScope.launch {
         app.settings.update { it.copy(consent = false) }
         route()

@@ -151,7 +151,11 @@ fun SettingsScreen(vm: MainViewModel, state: UiState) {
                 placeholder = { Text(BuildConfig.SERVER_URL) },
                 singleLine = true, modifier = Modifier.fillMaxWidth(),
             )
-            OutlinedButton(onClick = { vm.updateSettings { it.copy(serverUrl = server) } }) { Text("Сохранить адрес") }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = { vm.updateSettings { it.copy(serverUrl = server) } }) { Text("Сохранить адрес") }
+                OutlinedButton(onClick = vm::checkServer) { Text("Проверить соединение") }
+            }
+            Hint("Сначала сохраните адрес, затем проверьте. Проверка сразу показывает, видит ли приложение сервер.")
             HorizontalDivider()
             SectionTitle("Доступ и данные")
             Hint(
