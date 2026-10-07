@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
@@ -31,6 +32,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TriStateCheckbox
@@ -38,6 +40,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
@@ -83,6 +86,10 @@ fun PictureScreen(vm: MainViewModel, state: UiState) {
         ExportHelper.save(context, it, vm.exportText())
     }
     val checked = plan.checkedItems.size
+    // Folders are collapsed by default; the set holds the keys of the open ones.
+    var openKeys by rememberSaveable { mutableStateOf(emptyList<String>()) }
+    fun folderKey(name: String) = "folder:" + FolderNames.key(name)
+    fun toggle(key: String) { openKeys = if (key in openKeys) openKeys - key else openKeys + key }
 
     ScreenScaffold(
         "Картина папки",
@@ -90,6 +97,14 @@ fun PictureScreen(vm: MainViewModel, state: UiState) {
         actions = {
             IconButton(onClick = { exportMenu = true }) { Icon(Icons.Default.MoreVert, contentDescription = "Меню") }
             DropdownMenu(expanded = exportMenu, onDismissRequest = { exportMenu = false }) {
+                DropdownMenuItem(text = { Text("Развернуть все папки") }, onClick = {
+                    exportMenu = false
+                    openKeys = plan.folders.map { folderKey(it.name) } + "leave" + "dups"
+                })
+                DropdownMenuItem(text = { Text("Свернуть все папки") }, onClick = {
+                    exportMenu = false; openKeys = emptyList()
+                })
+                HorizontalDivider()
                 DropdownMenuItem(text = { Text("Версии плана (${state.versions.size})") }, onClick = {
                     exportMenu = false; dialog = Dialog.Versions
                 })
@@ -109,15 +124,23 @@ fun PictureScreen(vm: MainViewModel, state: UiState) {
             }
         },
         bottomBar = {
-            BottomAppBar {
-                Column(Modifier.weight(1f).padding(start = 16.dp)) {
-                    Text("Выбрано: $checked из ${plan.items.size}")
-                }
-                OutlinedButton(onClick = { dialog = Dialog.Save }, modifier = Modifier.padding(end = 8.dp)) {
-                    Text("Сохранить схему")
-                }
-                Button(onClick = vm::openPreview, enabled = checked > 0, modifier = Modifier.padding(end = 16.dp)) {
-                    Text("Forganize")
+            Surface(tonalElevation = 3.dp) {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .navigationBarsPadding()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text("Выбрано: $checked из ${plan.items.size}", style = MaterialTheme.typography.bodyMedium)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        OutlinedButton(onClick = { dialog = Dialog.Save }, modifier = Modifier.weight(1f)) {
+                            Text("Сохранить схему")
+                        }
+                        Button(onClick = vm::openPreview, enabled = checked > 0, modifier = Modifier.weight(1f)) {
+                            Text("Forganize")
+                        }
+                    }
                 }
             }
         },
@@ -136,6 +159,7 @@ fun PictureScreen(vm: MainViewModel, state: UiState) {
                     Text(state.rootLabel, style = MaterialTheme.typography.titleMedium)
                     Hint("Папок: ${plan.folders.size}, файлов в плане: ${plan.items.size}, не определено: ${plan.leave.size}")
                     Hint("Записи с уверенностью ниже 70% по умолчанию не выбраны.")
+                    Hint("Нажмите на папку, чтобы увидеть файлы. У свёрнутой папки красным показано, сколько файлов не выбрано.")
                     state.aiNote?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 }
             }
@@ -145,14 +169,16 @@ fun PictureScreen(vm: MainViewModel, state: UiState) {
                     FolderCard(
                         folder = folder,
                         items = plan.itemsIn(folder.name),
+                        expanded = folderKey(folder.name) in openKeys,
+                        onToggle = { toggle(folderKey(folder.name)) },
                         onCheck = { ids, c -> vm.setChecked(ids, c) },
                         onRename = { dialog = Dialog.Rename(folder.name) },
                         onMove = { title, ids -> dialog = Dialog.Move(title, ids, folder.name) },
                     )
                 }
             }
-            leaveBlock(state)
-            duplicatesBlock(state)
+            leaveBlock(state, "leave" in openKeys) { toggle("leave") }
+            duplicatesBlock(state, "dups" in openKeys) { toggle("dups") }
         }
     }
 
@@ -171,6 +197,8 @@ fun PictureScreen(vm: MainViewModel, state: UiState) {
 private fun FolderCard(
     folder: PlanFolder,
     items: List<PlanItem>,
+    expanded: Boolean,
+    onToggle: () -> Unit,
     onCheck: (Set<String>, Boolean) -> Unit,
     onRename: () -> Unit,
     onMove: (String, Set<String>) -> Unit,
@@ -178,16 +206,29 @@ private fun FolderCard(
     var menu by remember { mutableStateOf(false) }
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(vertical = 8.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(end = 4.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.clickable(onClick = onToggle).padding(end = 4.dp),
+            ) {
                 val st = toggleState(items)
                 TriStateCheckbox(state = st, onClick = { onCheck(items.map { it.file.id }.toSet(), st != ToggleableState.On) })
+                Text(if (expanded) "▾" else "▸", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(end = 6.dp))
                 Column(Modifier.weight(1f)) {
                     Text(
                         folder.name + if (folder.existing) " (существующая)" else " (новая)",
                         style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
                     )
-                    val sub = listOf(folder.desc, "файлов: ${items.size}").filter { it.isNotEmpty() }.joinToString(" · ")
+                    val selected = items.count { it.checked }
+                    val notSelected = items.size - selected
+                    val sub = listOf(folder.desc, "файлов: ${items.size}", "выбрано: $selected").filter { it.isNotEmpty() }.joinToString(" · ")
                     Hint(sub)
+                    if (notSelected > 0) Hint("не выбрано: $notSelected", color = MaterialTheme.colorScheme.error)
+                    if (!expanded) {
+                        Hint(
+                            items.take(3).joinToString(", ") { it.file.name } + if (items.size > 3) "…" else "",
+                            modifier = Modifier.padding(top = 2.dp),
+                        )
+                    }
                 }
                 if (!folder.existing) {
                     IconButton(onClick = onRename) { Icon(Icons.Default.Edit, contentDescription = "Переименовать") }
@@ -199,6 +240,7 @@ private fun FolderCard(
                     })
                 }
             }
+            if (!expanded) return@Column
             val bundles = items.filter { it.bundle != null }.groupBy { it.bundle!! }
             for ((name, group) in bundles) {
                 HorizontalDivider(Modifier.padding(vertical = 4.dp))
@@ -236,7 +278,7 @@ private fun FileRow(item: PlanItem, indent: Int, onCheck: (Set<String>, Boolean)
     }
 }
 
-private fun LazyListScope.leaveBlock(state: UiState) {
+private fun LazyListScope.leaveBlock(state: UiState, expanded: Boolean, onToggle: () -> Unit) {
     val leave = state.plan?.leave.orEmpty()
     if (leave.isEmpty()) return
     item(key = "leave") {
@@ -245,21 +287,26 @@ private fun LazyListScope.leaveBlock(state: UiState) {
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
         ) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                SectionTitle("Не определено (${leave.size})")
-                Hint("Эти файлы останутся на месте.")
-                leave.take(300).forEach { l ->
-                    Column {
-                        Text(l.file.name, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        Hint(l.reason)
-                    }
+                Row(Modifier.fillMaxWidth().clickable(onClick = onToggle), verticalAlignment = Alignment.CenterVertically) {
+                    Text(if (expanded) "▾" else "▸", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(end = 8.dp))
+                    SectionTitle("Не определено (${leave.size})")
                 }
-                if (leave.size > 300) Hint("…и ещё ${leave.size - 300}")
+                Hint("Эти файлы останутся на месте." + if (!expanded) " Нажмите, чтобы посмотреть список." else "")
+                if (expanded) {
+                    leave.take(300).forEach { l ->
+                        Column {
+                            Text(l.file.name, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            Hint(l.reason)
+                        }
+                    }
+                    if (leave.size > 300) Hint("…и ещё ${leave.size - 300}")
+                }
             }
         }
     }
 }
 
-private fun LazyListScope.duplicatesBlock(state: UiState) {
+private fun LazyListScope.duplicatesBlock(state: UiState, expanded: Boolean, onToggle: () -> Unit) {
     val dups = state.duplicates
     if (dups.isEmpty()) return
     item(key = "dups") {
@@ -268,12 +315,17 @@ private fun LazyListScope.duplicatesBlock(state: UiState) {
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
         ) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                SectionTitle("Возможные дубли (${dups.size} групп)")
-                Hint("Одинаковое содержимое. Приложение ничего не удаляет, решение за вами.")
-                dups.forEach { group ->
-                    HorizontalDivider()
-                    Hint(formatSize(group.first().size))
-                    group.forEach { Text(it.name, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                Row(Modifier.fillMaxWidth().clickable(onClick = onToggle), verticalAlignment = Alignment.CenterVertically) {
+                    Text(if (expanded) "▾" else "▸", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(end = 8.dp))
+                    SectionTitle("Возможные дубли (${dups.size} групп)")
+                }
+                Hint("Одинаковое содержимое. Приложение ничего не удаляет, решение за вами." + if (!expanded) " Нажмите, чтобы посмотреть." else "")
+                if (expanded) {
+                    dups.forEach { group ->
+                        HorizontalDivider()
+                        Hint(formatSize(group.first().size))
+                        group.forEach { Text(it.name, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                    }
                 }
             }
         }
