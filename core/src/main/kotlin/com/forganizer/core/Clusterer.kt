@@ -36,7 +36,11 @@ class Clusterer(
 ) {
     private val dateFmt = DateTimeFormatter.ofPattern("yyyy-MM-dd")
 
-    fun summarize(files: List<FileNode>, oldDays: Int = rules.config.oldFilesDays): Summary {
+    fun summarize(
+        files: List<FileNode>,
+        oldDays: Int = rules.config.oldFilesDays,
+        peeks: Map<String, String> = emptyMap(),
+    ): Summary {
         val minSize = rules.config.clusterMinSize.coerceAtLeast(2)
         val local = mutableListOf<LocalAssignment>()
         val rest = mutableListOf<FileNode>()
@@ -57,20 +61,22 @@ class Clusterer(
         val groups = mutableListOf<Pair<String, List<FileNode>>>() // pattern -> members
         val used = HashSet<String>()
 
-        // 1. Counter series: "file (1).pdf", "file (2).pdf", plus "file.pdf".
+        // 1. Counter series: "file (1).pdf", "file (2).pdf", "voice_bot-main-3.zip", plus "file.pdf".
         val seriesKey = HashMap<String, MutableList<FileNode>>()
         for (f in rest) {
-            val m = SERIES.matchEntire(baseName(f.name))
-            val base = (m?.groupValues?.get(1) ?: baseName(f.name)).trim().lowercase()
+            val base = (seriesMatch(baseName(f.name))?.groupValues?.get(1) ?: baseName(f.name)).trim().lowercase()
             seriesKey.getOrPut(base + "|" + extension(f.name)) { mutableListOf() } += f
         }
         for ((key, members) in seriesKey) {
-            val numbered = members.count { SERIES.matches(baseName(it.name)) }
+            val numbered = members.count { seriesMatch(baseName(it.name)) != null }
             if (members.size >= minSize && numbered >= minSize - 1) {
-                val first = members.first { SERIES.matches(baseName(it.name)) }
-                val base = SERIES.matchEntire(baseName(first.name))!!.groupValues[1].trim()
+                val first = members.first { seriesMatch(baseName(it.name)) != null }
+                val firstName = baseName(first.name)
+                val base = seriesMatch(firstName)!!.groupValues[1].trim()
                 val ext = key.substringAfter('|')
-                groups += "$base (*)" + (if (ext.isNotEmpty()) ".$ext" else "") to members
+                val dashed = SERIES.matchEntire(firstName) == null
+                val label = (if (dashed) "$base-*" else "$base (*)") + (if (ext.isNotEmpty()) ".$ext" else "")
+                groups += label to members
                 members.forEach { used += it.id }
             }
         }
@@ -115,7 +121,10 @@ class Clusterer(
             val dates = sorted.map { it.modified }.let { listOf(date(it.min()), date(it.max())) }
             objects += SummaryObject.Cluster(
                 id,
-                ClusterDto(id, sorted.size, exts, pattern, dates.distinct(), sorted.take(3).map { it.name }),
+                ClusterDto(
+                    id, sorted.size, exts, pattern, dates.distinct(), sorted.take(3).map { it.name },
+                    inside = sorted.firstNotNullOfOrNull { peeks[it.id] }.orEmpty(),
+                ),
                 sorted,
             )
         }
@@ -123,7 +132,7 @@ class Clusterer(
         val singles = rest.filter { it.id !in used }.map { f ->
             n++
             val id = "f$n"
-            SummaryObject.Single(id, FileDto(id, f.name, (f.size + 1023) / 1024, date(f.modified)), f)
+            SummaryObject.Single(id, FileDto(id, f.name, (f.size + 1023) / 1024, date(f.modified), peeks[f.id].orEmpty()), f)
         }
         objects += singles
         return Summary(objects, local, bundleCandidates(singles))
@@ -157,6 +166,10 @@ class Clusterer(
 
     companion object {
         private val SERIES = Regex("""^(.*?)\s*\((\d{1,4})\)$""")
+        /** "project-main-3": a hyphen and a short number; only counts as a series with 5+ members. */
+        private val SERIES_DASH = Regex("""^(.*\S)-(\d{1,2})$""")
+
+        private fun seriesMatch(name: String): MatchResult? = SERIES.matchEntire(name) ?: SERIES_DASH.matchEntire(name)
         private val PREFIX = Regex("""^([A-Za-zА-Яа-яЁё]+[_\- ])\d""")
         private const val MAX_TOKEN_SHARE = 20
         private val STOP = setOf(

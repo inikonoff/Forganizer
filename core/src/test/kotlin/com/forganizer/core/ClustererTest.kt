@@ -44,4 +44,16 @@ class ClustererTest {
         assertTrue(s.clusters.isEmpty())
         assertEquals(4, s.singles.size)
     }
+
+    @Test fun hyphenNumberedSeriesBecomesOneCluster() {
+        val files = listOf(file("m0", "voice_bot-main.zip", modified = 1_000_000_000)) +
+            (1..8).map { file("m$it", "voice_bot-main-$it.zip", modified = 2_000_000_000 + it * 86_400_000L) } +
+            listOf(file("t1", "TZ_folder_organizer-1.md"), file("t2", "TZ_folder_organizer-2.md"), file("t3", "TZ_folder_organizer.md"))
+        val s = clusterer.summarize(files)
+        val c = s.clusters.single { it.dto.pattern.startsWith("voice_bot-main") }
+        assertEquals(9, c.dto.count)
+        assertEquals("voice_bot-main-*.zip", c.dto.pattern)
+        // three similar notes are not enough for a cluster
+        assertEquals(3, s.singles.count { it.file.name.startsWith("TZ_folder_organizer") })
+    }
 }

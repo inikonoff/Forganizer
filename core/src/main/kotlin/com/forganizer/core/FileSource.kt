@@ -55,6 +55,9 @@ interface FileSource {
      */
     suspend fun move(node: FileNode, fromDir: NodeRef, targetDir: NodeRef, targetName: String): MoveResult
 
-    /** Reads file bytes locally (used only for duplicate hashing, never sent anywhere). */
+    /** Reads file bytes locally (duplicate hashing, archive entry names); contents are never sent anywhere. */
     fun openRead(node: FileNode): InputStream
+
+    /** A real file for random access when the backend has one (all-files mode), otherwise null. */
+    fun localFile(node: FileNode): java.io.File? = null
 }

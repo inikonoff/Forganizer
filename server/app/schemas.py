@@ -13,6 +13,7 @@ class ClusterIn(BaseModel):
     pattern: str = Field(default="", max_length=200)
     dates: list[str] = Field(default=[], max_length=4)
     samples: list[str] = Field(default=[], max_length=3)
+    inside: str = Field(default="", max_length=400)
 
 
 class FileIn(BaseModel):
@@ -21,6 +22,7 @@ class FileIn(BaseModel):
     name: str = Field(max_length=512)
     size_kb: int = Field(ge=0)
     date: str = Field(default="", max_length=32)
+    inside: str = Field(default="", max_length=400)
 
 
 class PlanRequest(BaseModel):

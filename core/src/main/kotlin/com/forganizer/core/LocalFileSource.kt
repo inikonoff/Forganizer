@@ -57,6 +57,8 @@ open class LocalFileSource(
 
     override fun openRead(node: FileNode): InputStream = FileInputStream(File(node.id))
 
+    override fun localFile(node: FileNode): File? = File(node.id).takeIf { it.isFile }
+
     private fun toNode(f: File) = FileNode(
         id = f.path,
         name = f.name,

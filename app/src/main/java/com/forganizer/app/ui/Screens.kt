@@ -85,6 +85,10 @@ private fun ConsentScreen(vm: MainViewModel) {
                         "Для анализа имена файлов, расширения, размеры и даты отправляются на сервер и в " +
                             "сторонние ИИ-сервисы. Содержимое файлов не отправляется."
                     )
+                    Text(
+                        "Для zip-архивов дополнительно отправляется краткая сводка имён внутри (число файлов, " +
+                            "корневые папки, типы файлов). Сами файлы из архива не читаются. Это можно отключить в настройках."
+                    )
                     SectionTitle("Что не отправляется")
                     Text("Содержимое файлов, пути на устройстве, данные аккаунтов. Поиск дублей выполняется только на устройстве.")
                     SectionTitle("Гарантии")
@@ -200,6 +204,7 @@ private fun ScanScreen(vm: MainViewModel, state: UiState) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     StatRow("Файлов", s.files)
                     StatRow("Кластеров", s.clusters)
+                    if (s.archives > 0) StatRow("Архивов просмотрено", s.archives)
                     StatRow("Возможных дублей", s.duplicates)
                     if (s.skipped > 0) StatRow("Недоступно (пропущено)", s.skipped)
                 }

@@ -19,6 +19,7 @@ data class AppSettings(
     val consent: Boolean = false,
     val treeUri: String? = null,
     val allowExisting: Boolean = false,
+    val peekArchives: Boolean = true,
     val ignoreExtensions: List<String> = emptyList(),
     val ignoreFolders: List<String> = emptyList(),
     val oldDays: Int = 90,
@@ -31,6 +32,7 @@ class SettingsStore(private val context: Context, private val rules: Rules) {
         val consent = booleanPreferencesKey("consent")
         val treeUri = stringPreferencesKey("tree_uri")
         val allowExisting = booleanPreferencesKey("allow_existing")
+        val peekArchives = booleanPreferencesKey("peek_archives")
         val ignoreExt = stringPreferencesKey("ignore_extensions")
         val ignoreDirs = stringPreferencesKey("ignore_folders")
         val oldDays = intPreferencesKey("old_days")
@@ -46,6 +48,7 @@ class SettingsStore(private val context: Context, private val rules: Rules) {
         consent = p[K.consent] ?: false,
         treeUri = p[K.treeUri],
         allowExisting = p[K.allowExisting] ?: false,
+        peekArchives = p[K.peekArchives] ?: true,
         ignoreExtensions = p[K.ignoreExt]?.let(::splitList) ?: rules.config.ignoreExtensions,
         ignoreFolders = p[K.ignoreDirs]?.let(::splitList) ?: rules.config.ignoreFolders,
         oldDays = p[K.oldDays] ?: rules.config.oldFilesDays,
@@ -59,6 +62,7 @@ class SettingsStore(private val context: Context, private val rules: Rules) {
             p[K.consent] = s.consent
             if (s.treeUri != null) p[K.treeUri] = s.treeUri else p.remove(K.treeUri)
             p[K.allowExisting] = s.allowExisting
+            p[K.peekArchives] = s.peekArchives
             p[K.ignoreExt] = s.ignoreExtensions.joinToString(",")
             p[K.ignoreDirs] = s.ignoreFolders.joinToString(",")
             p[K.oldDays] = s.oldDays

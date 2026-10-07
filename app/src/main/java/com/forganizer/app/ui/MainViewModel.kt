@@ -18,6 +18,7 @@ import com.forganizer.app.fs.SafBackend
 import com.forganizer.core.AccessLostException
 import com.forganizer.core.AiPlanner
 import com.forganizer.core.AiRequestException
+import com.forganizer.core.ArchivePeeker
 import com.forganizer.core.AiUnavailableException
 import com.forganizer.core.ApplyReport
 import com.forganizer.core.Applier
@@ -72,6 +73,7 @@ data class ScanStats(
     val clusters: Int = 0,
     val duplicates: Int = 0,
     val skipped: Int = 0,
+    val archives: Int = 0,
     val aiDone: Int = 0,
     val aiTotal: Int = 0,
 )
@@ -270,9 +272,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     Scanner(src).scan(rootRef, ScanSettings(s.ignoreExtensions.toSet(), s.ignoreFolders.toSet()))
                 }
                 scan = result
-                val sum = Clusterer(app.rules, now = System.currentTimeMillis()).summarize(result.files, s.oldDays)
+                val peeks = if (s.peekArchives) {
+                    stats { it.copy(stage = "Заглядываю в архивы", files = result.files.size, skipped = result.skipped) }
+                    withContext(Dispatchers.IO) {
+                        val scope = this
+                        ArchivePeeker(src).peekAll(result.files) { !scope.isActive }
+                    }
+                } else emptyMap()
+                val sum = Clusterer(app.rules, now = System.currentTimeMillis()).summarize(result.files, s.oldDays, peeks)
                 summary = sum
-                stats { it.copy(stage = "Поиск дублей", files = result.files.size, skipped = result.skipped, clusters = sum.clusters.size) }
+                stats { it.copy(stage = "Поиск дублей", files = result.files.size, skipped = result.skipped, clusters = sum.clusters.size, archives = peeks.size) }
                 val dups = withContext(Dispatchers.IO) {
                     val scope = this
                     DuplicateFinder { src.openRead(it) }.find(result.files) { !scope.isActive }

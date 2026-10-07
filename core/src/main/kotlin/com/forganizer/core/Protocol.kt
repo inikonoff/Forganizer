@@ -12,6 +12,8 @@ data class ClusterDto(
     val pattern: String,
     val dates: List<String>,
     val samples: List<String>,
+    /** Summary of names inside the first archive of the cluster (empty if none). */
+    val inside: String = "",
 )
 
 @Serializable
@@ -20,6 +22,8 @@ data class FileDto(
     val name: String,
     @SerialName("size_kb") val sizeKb: Long,
     val date: String,
+    /** Summary of names inside a zip archive (empty if not an archive or not peeked). */
+    val inside: String = "",
 )
 
 @Serializable

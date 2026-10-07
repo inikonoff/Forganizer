@@ -106,6 +106,13 @@ fun SettingsScreen(vm: MainViewModel, state: UiState) {
                 }
                 Switch(checked = s.allowExisting, onCheckedChange = { v -> vm.updateSettings { it.copy(allowExisting = v) } })
             }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Заглядывать в zip-архивы")
+                    Hint("Для zip отправляется краткая сводка имён внутри (число файлов, корневые папки, типы). Содержимое файлов не читается. Помогает отличить проект с кодом от книг и документов.")
+                }
+                Switch(checked = s.peekArchives, onCheckedChange = { v -> vm.updateSettings { it.copy(peekArchives = v) } })
+            }
             HorizontalDivider()
             OutlinedTextField(
                 value = exts, onValueChange = { exts = it },

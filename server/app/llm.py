@@ -100,7 +100,11 @@ class Planner:
             await self._client.aclose()
 
     async def plan(self, req: PlanRequest) -> tuple[PlanOut, str]:
-        user = json.dumps(req.model_dump(), ensure_ascii=False)
+        data = req.model_dump()
+        for item in data["files"] + data["clusters"]:
+            if not item.get("inside"):
+                item.pop("inside", None)  # keep the prompt small: only archives carry a summary
+        user = json.dumps(data, ensure_ascii=False)
         return await self._run(SYSTEM_PROMPT, user, lambda text: parse_answer(text, req.phase))
 
     async def refine(self, req: RefineRequest) -> tuple[RefineOut, str]:
