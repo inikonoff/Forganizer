@@ -294,7 +294,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         root = rootRef
         _state.update {
             it.copy(
-                screen = Screen.SCAN, rootLabel = label, stats = ScanStats(stage = "Сканирование"), scanError = null,
+                screen = Screen.SCAN, rootLabel = label, stats = ScanStats(stage = "Сканирование папки"), scanError = null,
                 plan = null, preview = null, duplicates = emptyList(), aiNote = null, apply = ApplyState(),
             )
         }
@@ -309,7 +309,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 scanNote = if (result.truncated) "Папка очень большая: прочитаны не все вложенные папки (лимит ${5000} файлов)." else null
                 stats { it.copy(projects = result.projectFolders.size) }
                 val peeks = if (s.peekArchives) {
-                    stats { it.copy(stage = "Заглядываю в архивы", files = result.files.size, skipped = result.skipped) }
+                    stats { it.copy(stage = "Чтение архивов", files = result.files.size, skipped = result.skipped) }
                     withContext(Dispatchers.IO) {
                         val scope = this
                         ArchivePeeker(src).peekAll(result.files) { !scope.isActive }
@@ -343,7 +343,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val s = app.settings.current()
         val existing = result.existingFolders.map { it.name }
         _state.update { it.copy(scanError = null) }
-        stats { it.copy(stage = "Анализ ИИ") }
+        stats { it.copy(stage = "Классификация файлов") }
         try {
             if (sum.objects.isNotEmpty()) app.api.warmUp()
             val res = AiPlanner(app.api).plan(sum, existing, s.allowExisting) { done, total ->

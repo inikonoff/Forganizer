@@ -8,7 +8,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearOutSlowInEasing
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.animation.core.tween
@@ -186,7 +185,7 @@ private fun creepingProgress(done: Int, total: Int): Float {
     return value.value
 }
 
-/** A thin rounded bar without the stop dot and gap; the value animates smoothly. [progress] null means indeterminate. */
+/** A thin rounded bar without the stop dot and gap. [progress] null means indeterminate; the value is already smooth. */
 @Composable
 private fun SleekProgress(progress: Float?) {
     val bar = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(50))
@@ -194,9 +193,8 @@ private fun SleekProgress(progress: Float?) {
     if (progress == null) {
         LinearProgressIndicator(modifier = bar, color = MaterialTheme.colorScheme.primary, trackColor = track, strokeCap = StrokeCap.Round)
     } else {
-        val shown by animateFloatAsState(progress.coerceIn(0f, 1f), animationSpec = tween(400), label = "progress")
         LinearProgressIndicator(
-            progress = { shown }, modifier = bar,
+            progress = { progress.coerceIn(0f, 1f) }, modifier = bar,
             color = MaterialTheme.colorScheme.primary, trackColor = track,
             strokeCap = StrokeCap.Round, gapSize = 0.dp, drawStopIndicator = {},
         )
@@ -225,7 +223,7 @@ private fun ScanOverlay(vm: MainViewModel, state: UiState) {
                     if (s.aiTotal > 0) {
                         val p = creepingProgress(s.aiDone, s.aiTotal)
                         SleekProgress(p)
-                        Text(s.stage + "  " + (p * 100).toInt().coerceAtMost(99) + "%", style = MaterialTheme.typography.bodyMedium)
+                        Text(s.stage, style = MaterialTheme.typography.bodyMedium)
                     } else {
                         SleekProgress(null)
                         Text(s.stage + "…", style = MaterialTheme.typography.bodyMedium)
@@ -258,7 +256,7 @@ private fun ScanOverlay(vm: MainViewModel, state: UiState) {
                     Hint("Локальная сводка сохранена.")
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                         Button(onClick = vm::retryAi, modifier = Modifier.weight(1f)) { Text("Повторить", maxLines = 1) }
-                        OutlinedButton(onClick = vm::withoutAi, modifier = Modifier.weight(1f)) { Text("Без ИИ", maxLines = 1) }
+                        OutlinedButton(onClick = vm::withoutAi, modifier = Modifier.weight(1f)) { Text("Без классификации", maxLines = 1) }
                     }
                 }
                 Spacer(Modifier.height(2.dp))
