@@ -35,6 +35,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -61,10 +63,14 @@ fun App(vm: MainViewModel) {
     }
 
     state.message?.let { msg ->
+        val clipboard = LocalClipboardManager.current
         AlertDialog(
             onDismissRequest = vm::dismissMessage,
             confirmButton = { TextButton(onClick = vm::dismissMessage) { Text("OK") } },
-            text = { Text(msg) },
+            dismissButton = {
+                if (msg.length > 120) TextButton(onClick = { clipboard.setText(AnnotatedString(msg)) }) { Text("Копировать") }
+            },
+            text = { Column(Modifier.verticalScroll(rememberScrollState())) { Text(msg) } },
         )
     }
 }

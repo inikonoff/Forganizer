@@ -14,6 +14,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -215,6 +216,13 @@ fun SettingsScreen(vm: MainViewModel, state: UiState) {
                         null -> "Сейчас: нет доступа"
                     },
                     onClick = vm::openAccess,
+                )
+                HorizontalDivider(Modifier.padding(start = 56.dp))
+                SettingsListItem(
+                    icon = Icons.Default.Search,
+                    title = "Диагностика доступа",
+                    subtitle = "Показывает, какие папки видит приложение. Отчёт можно скопировать",
+                    onClick = vm::runAccessDiagnostics,
                 )
                 HorizontalDivider(Modifier.padding(start = 56.dp))
                 SettingsListItem(

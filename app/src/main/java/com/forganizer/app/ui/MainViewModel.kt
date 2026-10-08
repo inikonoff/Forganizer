@@ -154,19 +154,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch { route() }
     }
 
+    /**
+     * Chooses the entry screen. It runs asynchronously (also from onResume, e.g. right after the system
+     * folder picker closes), so it must never replace a screen the user is already working on.
+     */
     private suspend fun route() {
         val s = app.settings.current()
         val mode = detectMode(s)
-        _state.update {
-            it.copy(
-                mode = mode,
-                treeLabel = s.treeUri?.let { u -> Access.label(SafBackend(app, Uri.parse(u)).root.id) },
-                screen = when {
-                    !s.consent -> Screen.CONSENT
-                    mode == null -> Screen.ACCESS
-                    else -> Screen.FOLDER
-                },
-            )
+        val label = s.treeUri?.let { u -> Access.label(SafBackend(app, Uri.parse(u)).root.id) }
+        _state.update { cur ->
+            val target = when {
+                !s.consent -> Screen.CONSENT
+                mode == null -> Screen.ACCESS
+                else -> Screen.FOLDER
+            }
+            cur.copy(mode = mode, treeLabel = label, screen = if (cur.screen in ENTRY_SCREENS) target else cur.screen)
         }
     }
 
@@ -192,8 +194,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun onTreePicked(uri: Uri?) {
         if (uri == null) return
-        val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-        runCatching { app.contentResolver.takePersistableUriPermission(uri, flags) }
+        Access.takePersistable(app, uri)
         viewModelScope.launch {
             if (Access.hasAllFiles(app)) {
                 val path = Access.treeToPath(uri)
@@ -202,17 +203,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (path != null && readable) {
                     startScanFull(path); return@launch
                 }
-                // Otherwise work with the picked folder through the system file access (SAF) right away.
-                if (!Access.hasTreePermission(app, uri)) {
-                    _state.update { it.copy(message = "Не удалось получить доступ к выбранной папке. Выберите её ещё раз и подтвердите доступ в системном окне.") }
-                    return@launch
+            }
+            // Everything else goes through the system file access (SAF), and analysis starts right away.
+            if (!Access.hasTreePermission(app, uri)) {
+                val report = withContext(Dispatchers.IO) { Access.diagnose(app, uri, null) }
+                _state.update {
+                    it.copy(message = "Система не сохранила доступ к выбранной папке. Выберите её ещё раз и подтвердите доступ в системном окне.\n\n$report")
                 }
-                val saf = SafBackend(app, uri)
-                start(saf, saf.root, Access.label(saf.root.id))
                 return@launch
             }
             app.settings.update { it.copy(treeUri = uri.toString()) }
-            route()
+            val saf = SafBackend(app, uri)
+            start(saf, saf.root, Access.label(saf.root.id))
+        }
+    }
+
+    /** Shows what the app can see (permissions, volumes, listing results); the report can be copied. */
+    fun runAccessDiagnostics() {
+        _state.update { it.copy(message = "Проверяю доступ…") }
+        viewModelScope.launch {
+            val report = withContext(Dispatchers.IO) { Access.diagnose(app, null, _state.value.settings.treeUri) }
+            _state.update { it.copy(message = report) }
         }
     }
 
@@ -677,6 +688,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun revokeConsent() = viewModelScope.launch {
         app.settings.update { it.copy(consent = false) }
+        _state.update { it.copy(screen = Screen.LOADING) }
         route()
     }
 
@@ -709,6 +721,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     companion object {
+        private val ENTRY_SCREENS = setOf(Screen.LOADING, Screen.CONSENT, Screen.ACCESS, Screen.FOLDER)
         val CONFLICT_LABELS = mapOf(ConflictMode.RENAME to "Переименовать: name (1).ext", ConflictMode.SKIP to "Пропустить файл")
     }
 }

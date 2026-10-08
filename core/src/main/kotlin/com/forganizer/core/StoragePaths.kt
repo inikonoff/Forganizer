@@ -18,10 +18,10 @@ object StoragePaths {
             if (!VOLUME.matches(volume)) return null
             File(storageRoot, volume).takeIf { it.isDirectory } ?: return null
         }
-        val baseCanonical = base.canonicalFile
-        val target = File(baseCanonical, rel).canonicalFile
-        val inside = target.path == baseCanonical.path || target.path.startsWith(baseCanonical.path + File.separator)
-        return target.takeIf { inside }
+        // Normalize "..", but do not resolve symlinks: on Android the app can only see /storage/<id>.
+        val baseNormal = base.toPath().normalize()
+        val target = File(base, rel).toPath().normalize()
+        return if (target.startsWith(baseNormal)) target.toFile() else null
     }
 
     private val VOLUME = Regex("[A-Za-z0-9][A-Za-z0-9-]{3,}")
