@@ -67,7 +67,7 @@ class AiPlanner(
             }
             onProgress(i + 2, total)
         }
-        if (failed == batches.size) throw lastError ?: AiUnavailableException("ИИ временно недоступен")
+        if (failed == batches.size) throw lastError ?: AiUnavailableException("Помощник временно недоступен")
         // A bundle that ended up split across batches goes to leave as a whole.
         val (kept, extra) = PlanValidator.enforceBundles(assignments)
         val used = kept.map { FolderNames.key(it.folder) }.toSet()

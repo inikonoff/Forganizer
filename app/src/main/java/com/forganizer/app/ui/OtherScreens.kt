@@ -103,11 +103,7 @@ fun JournalScreen(vm: MainViewModel, state: UiState) {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("Возвращено файлов: ${r.restored}, ошибок: ${r.failed.size}")
                     r.failed.take(20).forEach { Hint("${it.name}: ${it.reason}") }
-                    state.emptyDirs?.let { p ->
-                        Text("Папки, созданные приложением, теперь пусты. Удалить их?")
-                        Text(p.names.joinToString("\n") { "📁 $it" }, fontWeight = FontWeight.SemiBold)
-                        Hint("Удалятся только эти пустые папки. Если в какой-то уже что-то лежит, она останется.")
-                    } ?: if (r.createdDirs.isNotEmpty()) {
+                    state.emptyDirs?.let { p -> EmptyDirsBody(p) } ?: if (r.createdDirs.isNotEmpty()) {
                         Text("Папки, созданные приложением, остались на месте:")
                         Hint(r.createdDirs.joinToString())
                     } else Unit
@@ -157,7 +153,7 @@ fun SettingsScreen(vm: MainViewModel, state: UiState) {
                 HorizontalDivider(Modifier.padding(horizontal = 16.dp))
                 SwitchRow(
                     title = "Заглядывать в ZIP-архивы",
-                    hint = "Имена внутри архива помогают ИИ, содержимое не читается",
+                    hint = "Имена внутри архива помогают точнее разобрать файлы, содержимое не читается",
                     checked = s.peekArchives,
                 ) { v -> vm.updateSettings { it.copy(peekArchives = v) } }
             }
@@ -195,7 +191,7 @@ fun SettingsScreen(vm: MainViewModel, state: UiState) {
                 }
             }
 
-            SettingsSection("Сервер ИИ") {
+            SettingsSection("Сервер анализа") {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     SolidField("Адрес сервера", server, { server = it.trim() }, BuildConfig.SERVER_URL, keyboardType = KeyboardType.Uri)
                     OutlinedButton(

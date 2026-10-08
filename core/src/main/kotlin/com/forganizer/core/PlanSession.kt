@@ -26,7 +26,7 @@ data class PlanSnapshot(
     }
 }
 
-class RefineLimitException : Exception("Достигнут лимит правок ИИ на сессию")
+class RefineLimitException : Exception("Достигнут лимит правок на сессию")
 
 /**
  * The editable plan with its history. Manual edits are pinned; AI edits arrive as patches that are

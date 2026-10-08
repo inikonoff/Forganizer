@@ -2,7 +2,7 @@ package com.forganizer.core
 
 import java.util.concurrent.atomic.AtomicBoolean
 
-enum class JournalKind { MKDIR, MOVE }
+enum class JournalKind { MKDIR, MOVE, RMDIR }
 enum class JournalStatus { PENDING, DONE, FAILED, SKIPPED, UNDONE, UNDO_FAILED }
 
 data class JournalRecord(
@@ -33,6 +33,9 @@ data class MoveOp(val file: FileNode, val folder: String)
 
 data class OpError(val name: String, val reason: String)
 
+/** A nested folder files were moved out of: its id and its path relative to the scanned root. */
+data class SourceDir(val id: String, val rel: String)
+
 data class ApplyReport(
     val session: String,
     val done: Int,
@@ -41,6 +44,8 @@ data class ApplyReport(
     val createdDirs: List<String>,
     val stopped: Boolean,
     val accessLost: Boolean,
+    /** Nested folders that files were moved out of (candidates for "folder is empty now"). */
+    val sourceDirs: List<SourceDir> = emptyList(),
 )
 
 data class UndoReport(
@@ -70,6 +75,7 @@ class Applier(
         val skipped = mutableListOf<OpError>()
         val failed = mutableListOf<OpError>()
         val created = mutableListOf<String>()
+        val sources = LinkedHashMap<String, SourceDir>()
         try {
             val rootListing = source.list(root).nodes
             val dirs = HashMap<String, NodeRef>()
@@ -111,7 +117,7 @@ class Applier(
             val names = HashMap<String, MutableSet<String>>()
             ops.forEachIndexed { index, op ->
                 if (stop.get()) {
-                    return ApplyReport(session, done, skipped, failed, created, stopped = true, accessLost = false)
+                    return ApplyReport(session, done, skipped, failed, created, stopped = true, accessLost = false, sourceDirs = sources.values.toList())
                 }
                 onProgress(index, ops.size)
                 val target = dirs[FolderNames.key(op.folder)] ?: return@forEachIndexed
@@ -145,6 +151,7 @@ class Applier(
                         taken += r.node.name.lowercase()
                         journal.update(pending.copy(id = id, dstId = r.node.id, dstName = r.node.name, status = JournalStatus.DONE, time = now()))
                         done++
+                        if (op.file.dir.isNotEmpty() && op.file.rel.isNotEmpty()) sources.putIfAbsent(op.file.dir, SourceDir(op.file.dir, op.file.rel))
                     }
                     is MoveResult.Failed -> {
                         journal.update(pending.copy(id = id, status = JournalStatus.FAILED, error = r.reason, time = now()))
@@ -153,7 +160,7 @@ class Applier(
                 }
             }
             onProgress(ops.size, ops.size)
-            return ApplyReport(session, done, skipped, failed, created, stopped = false, accessLost = false)
+            return ApplyReport(session, done, skipped, failed, created, stopped = false, accessLost = false, sourceDirs = sources.values.toList())
         } catch (e: AccessLostException) {
             return ApplyReport(session, done, skipped, failed + OpError("", e.message ?: "Доступ потерян"), created, stopped = true, accessLost = true)
         }
@@ -184,6 +191,59 @@ class Applier(
         return RemoveDirsReport(removed, kept, accessLost = false)
     }
 
+    /**
+     * Of the nested folders files were moved out of, those that are empty now (or hold only such folders).
+     * These are the user's own folders, so they are only offered, never removed on their own.
+     */
+    suspend fun emptiedSourceDirs(dirs: List<SourceDir>): List<SourceDir> {
+        val ordered = dirs.sortedByDescending { it.rel.count { c -> c == '/' } }
+        val deletable = LinkedHashMap<String, SourceDir>()
+        for (d in ordered) {
+            val node = source.stat(NodeRef(d.id)) ?: continue
+            if (!node.isDir) continue
+            val listing = source.list(NodeRef(d.id))
+            if (listing.skipped == 0 && listing.nodes.all { it.isDir && it.id in deletable }) deletable[d.id] = d
+        }
+        return ordered.filter { it.id in deletable }
+    }
+
+    /**
+     * Deletes the emptied source folders (deepest first) and journals each removal, so an undo can
+     * recreate the folder and put the files back where they were.
+     */
+    suspend fun removeEmptiedSourceDirs(session: String, root: NodeRef, dirs: List<SourceDir>): RemoveDirsReport {
+        val removed = mutableListOf<String>()
+        val kept = mutableListOf<String>()
+        try {
+            for (d in dirs.sortedByDescending { it.rel.count { c -> c == '/' } }) {
+                val ref = NodeRef(d.id)
+                if (isEmptyDir(ref) && source.deleteEmptyDir(ref)) {
+                    journal.insert(
+                        JournalRecord(
+                            session = session, kind = JournalKind.RMDIR, rootId = root.id, srcDir = root.id,
+                            srcId = d.id, srcName = d.rel, dstDir = root.id, dstId = null, dstName = d.rel,
+                            size = 0, status = JournalStatus.DONE, time = now(),
+                        )
+                    )
+                    removed += d.rel
+                } else kept += d.rel
+            }
+        } catch (e: AccessLostException) {
+            return RemoveDirsReport(removed, kept, accessLost = true)
+        }
+        return RemoveDirsReport(removed, kept, accessLost = false)
+    }
+
+    /** Finds or creates the folder chain [rel] below [root] (case-insensitive match, one level at a time). */
+    private suspend fun ensureChain(root: NodeRef, rel: String): NodeRef {
+        var cur = root
+        for (seg in rel.split('/').filter { it.isNotEmpty() }) {
+            val child = source.list(cur).nodes.firstOrNull { it.isDir && it.name.equals(seg, ignoreCase = true) }
+            cur = child?.ref ?: source.createDir(cur, seg)
+        }
+        return cur
+    }
+
     private suspend fun createdDirRecords(session: String) =
         journal.session(session).filter { it.kind == JournalKind.MKDIR && it.status == JournalStatus.DONE && it.dstId != null }
 
@@ -202,7 +262,13 @@ class Applier(
         var restored = 0
         val failed = mutableListOf<OpError>()
         val names = HashMap<String, MutableSet<String>>()
+        val remap = HashMap<String, String>()
         try {
+            // Folders the app deleted after emptying them are recreated first, so their files can return.
+            for (rm in records.filter { it.kind == JournalKind.RMDIR && it.status == JournalStatus.DONE }.sortedBy { it.id }) {
+                remap[rm.srcId] = ensureChain(NodeRef(rm.rootId), rm.srcName).id
+                journal.update(rm.copy(status = JournalStatus.UNDONE, time = now()))
+            }
             moves.forEachIndexed { i, rec ->
                 onProgress(i, moves.size)
                 val node = rec.dstId?.let { source.stat(NodeRef(it)) }
@@ -211,7 +277,7 @@ class Applier(
                     journal.update(rec.copy(status = JournalStatus.UNDO_FAILED, error = "not found", time = now()))
                     return@forEachIndexed
                 }
-                val src = NodeRef(rec.srcDir)
+                val src = NodeRef(remap[rec.srcDir] ?: rec.srcDir)
                 val taken = names.getOrPut(src.id) { source.list(src).nodes.map { it.name.lowercase() }.toMutableSet() }
                 val name = Conflicts.uniqueName(rec.srcName, taken)
                 when (val r = source.move(node, NodeRef(rec.dstDir), src, name)) {

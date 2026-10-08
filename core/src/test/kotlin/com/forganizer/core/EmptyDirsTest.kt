@@ -49,3 +49,65 @@ class EmptyDirsTest {
         assertEquals(listOf("Old"), src.list(root).nodes.filter { it.isDir }.map { it.name })
     }
 }
+
+class EmptiedSourceDirsTest {
+    private val scan = ScanSettings(emptySet(), emptySet(), depth = 3)
+
+    @Test fun emptiedNestedFoldersAreOfferedRemovedAndRecreatedByUndo() = runBlocking {
+        val src = InMemoryFileSource()
+        val root = src.mkRoot("r")
+        val books = src.createDir(root, "Books")
+        val heller = src.createDir(books, "Heller")
+        src.addFile(heller, "catch22.fb2")
+        val keep = src.createDir(root, "Keep")
+        src.addFile(keep, "stay.txt"); src.addFile(keep, "go.pdf")
+        val applier = Applier(src, MemoryJournal())
+        val files = Scanner(src).scan(root, scan).files
+        val ops = files.filter { it.name != "stay.txt" }.map { MoveOp(it, "Docs") }
+        val report = applier.apply("s", root, ops, ConflictMode.RENAME, AtomicBoolean(false))
+        assertEquals(2, report.done)
+
+        val emptied = applier.emptiedSourceDirs(report.sourceDirs)
+        assertEquals(setOf("Books/Heller"), emptied.map { it.rel }.toSet()) // Keep still holds stay.txt
+        val rep = applier.removeEmptiedSourceDirs("s", root, emptied)
+        assertEquals(listOf("Books/Heller"), rep.removed)
+        assertTrue(src.list(books).nodes.isEmpty())
+
+        val undo = applier.undo("s")
+        assertEquals(2, undo.restored)
+        val heller2 = src.list(books).nodes.single { it.isDir }
+        assertEquals("Heller", heller2.name)
+        assertEquals(listOf("catch22.fb2"), src.list(heller2.ref).nodes.map { it.name })
+        assertEquals(setOf("stay.txt", "go.pdf"), src.list(keep).nodes.map { it.name }.toSet())
+    }
+
+    @Test fun parentFolderThatOnlyHoldsEmptiedFoldersIsOfferedToo() = runBlocking {
+        val src = InMemoryFileSource()
+        val root = src.mkRoot("r")
+        val a = src.createDir(root, "A")
+        val b = src.createDir(a, "B")
+        src.addFile(a, "top.txt"); src.addFile(b, "deep.txt")
+        val applier = Applier(src, MemoryJournal())
+        val files = Scanner(src).scan(root, scan).files
+        val report = applier.apply("s", root, files.map { MoveOp(it, "All") }, ConflictMode.RENAME, AtomicBoolean(false))
+        val emptied = applier.emptiedSourceDirs(report.sourceDirs)
+        assertEquals(listOf("A/B", "A"), emptied.map { it.rel })
+        val rep = applier.removeEmptiedSourceDirs("s", root, emptied)
+        assertEquals(listOf("A/B", "A"), rep.removed)
+        assertEquals(1, applier.undo("s").let { u -> if (u.restored == 2) 1 else 0 })
+        assertEquals(listOf("A"), src.list(root).nodes.filter { it.isDir && it.name == "A" }.map { it.name })
+    }
+
+    @Test fun folderThatGotSomethingElseIsKept() = runBlocking {
+        val src = InMemoryFileSource()
+        val root = src.mkRoot("r")
+        val a = src.createDir(root, "A")
+        src.addFile(a, "x.txt")
+        val applier = Applier(src, MemoryJournal())
+        val report = applier.apply("s", root, Scanner(src).scan(root, scan).files.map { MoveOp(it, "All") }, ConflictMode.RENAME, AtomicBoolean(false))
+        val emptied = applier.emptiedSourceDirs(report.sourceDirs)
+        src.addFile(a.let { NodeRef(it.id) }, "late.txt") // appears before the user confirms
+        val rep = applier.removeEmptiedSourceDirs("s", root, emptied)
+        assertTrue(rep.removed.isEmpty()); assertEquals(listOf("A"), rep.kept)
+    }
+}

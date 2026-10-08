@@ -24,13 +24,13 @@ data class ValidatedPlan(
 }
 
 object Reasons {
-    const val NOT_DETERMINED = "ИИ не определил"
-    const val LOW_CONFIDENCE = "Низкая уверенность ИИ"
+    const val NOT_DETERMINED = "Помощник не определил"
+    const val LOW_CONFIDENCE = "Низкая уверенность"
     const val BUNDLE_SPLIT = "Связанные файлы попали в разные папки"
     const val EXISTING_FORBIDDEN = "Назначение в существующую папку отключено"
     const val UNKNOWN_FOLDER = "Папка не из предложенного списка"
     const val BAD_PATH = "Недопустимое имя папки"
-    const val AI_NO_ANSWER = "ИИ не ответил, запустите анализ ещё раз"
+    const val AI_NO_ANSWER = "Помощник не ответил, запустите анализ ещё раз"
 }
 
 object FolderNames {

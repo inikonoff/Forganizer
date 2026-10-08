@@ -70,7 +70,7 @@ class HttpPlanApi(
         } catch (e: IOException) {
             false to "Не удалось подключиться к ${host()}: ${e.message ?: e.javaClass.simpleName}. Бесплатный сервер Render может просыпаться до минуты, повторите проверку."
         }
-        return if (health.first) health.second + "\n\nМодели ИИ:\n" + diagnoseModels() else health.second
+        return if (health.first) health.second + "\n\nМодели:\n" + diagnoseModels() else health.second
     }
 
     /** Asks the server which configured models answer right now (POST /diag). */
@@ -141,7 +141,7 @@ class HttpPlanApi(
                 } catch (e: Exception) {
                     throw AiUnavailableException("Сервер вернул некорректный ответ")
                 }
-                503, 502, 504 -> throw AiUnavailableException("ИИ временно недоступен")
+                503, 502, 504 -> throw AiUnavailableException("Помощник временно недоступен")
                 401 -> throw AiRequestException(401, "Сервер ${host()} отклонил токен приложения: APP_TOKEN в сборке не совпадает с APP_TOKEN на сервере")
                 413 -> throw AiRequestException(
                     413,

@@ -104,7 +104,7 @@ fun App(vm: MainViewModel) {
 private fun ConsentScreen(vm: MainViewModel) {
     ScreenScaffold("Forganizer") { padding ->
         ScrollColumn(padding) {
-            Text("ИИ-помощник по организации папок", style = MaterialTheme.typography.headlineSmall)
+            Text("Помощник по организации папок", style = MaterialTheme.typography.headlineSmall)
             Text(
                 "Приложение смотрит на файлы в корне выбранной папки, находит связанные по смыслу и " +
                     "предлагает, как разложить их по папкам."
@@ -114,7 +114,7 @@ private fun ConsentScreen(vm: MainViewModel) {
                     SectionTitle("Что отправляется")
                     Text(
                         "Для анализа имена файлов, расширения, размеры и даты отправляются на сервер и в " +
-                            "сторонние ИИ-сервисы. Содержимое файлов не отправляется."
+                            "сторонние сервисы языковых моделей. Содержимое файлов не отправляется."
                     )
                     Text(
                         "Для zip-архивов дополнительно отправляется краткая сводка имён внутри (число файлов, " +
@@ -273,23 +273,33 @@ private fun ScanOverlay(vm: MainViewModel, state: UiState) {
 }
 
 
-/** Asks whether to delete empty folders the app created; the only deletion the app ever does, and only on request. */
+/** Asks whether to delete empty folders: the app's own, and the user's folders emptied by the move. Only on request. */
 @Composable
 internal fun EmptyDirsDialog(p: EmptyDirsPrompt, vm: MainViewModel) {
     AlertDialog(
         onDismissRequest = vm::keepEmptyDirs,
         title = { Text(if (p.afterUndo) "Удалить созданные папки?" else "Есть пустые папки") },
-        text = {
-            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    if (p.afterUndo) "Все файлы возвращены на место. Папки, которые создало приложение, теперь пусты:"
-                    else "Эти папки созданы приложением, но в них ничего не попало:",
-                )
-                Text(p.names.joinToString("\n") { "📁 $it" }, fontWeight = FontWeight.SemiBold)
-                Hint("Удалятся только эти пустые папки. Если в какой-то уже что-то лежит, она останется.")
-            }
-        },
+        text = { EmptyDirsBody(p) },
         confirmButton = { TextButton(onClick = vm::removeEmptyDirs) { Text("Да, удалить") } },
         dismissButton = { TextButton(onClick = vm::keepEmptyDirs) { Text("Нет, я сам") } },
     )
+}
+
+@Composable
+internal fun EmptyDirsBody(p: EmptyDirsPrompt) {
+    Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (p.names.isNotEmpty()) {
+            Text(
+                if (p.afterUndo) "Все файлы возвращены на место. Папки, которые создало приложение, теперь пусты:"
+                else "Эти папки созданы приложением, но в них ничего не попало:",
+            )
+            Text(p.names.joinToString("\n") { "📁 $it" }, fontWeight = FontWeight.SemiBold)
+        }
+        if (p.emptied.isNotEmpty()) {
+            Text("Из этих ваших папок все файлы перенесены, они опустели:")
+            Text(p.emptied.joinToString("\n") { "📁 $it" }, fontWeight = FontWeight.SemiBold)
+            Hint("Если позже нажмёте «Отмена» в журнале, эти папки будут созданы заново и файлы вернутся в них.")
+        }
+        Hint("Удалятся только пустые папки. Если в какой-то уже что-то лежит, она останется.")
+    }
 }

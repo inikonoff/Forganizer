@@ -787,7 +787,7 @@ fun RefineDiffScreen(vm: MainViewModel, state: UiState) {
         (result.plan.items.map { it.file } + result.plan.leave.map { it.file }).associate { it.id to it.name }
     }
     ScreenScaffold(
-        "Правка ИИ",
+        "Правка помощника",
         onBack = vm::rejectRefine,
         bottomBar = {
             BottomAppBar {

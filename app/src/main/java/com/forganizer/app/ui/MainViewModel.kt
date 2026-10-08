@@ -34,6 +34,8 @@ import com.forganizer.core.FileSource
 import com.forganizer.core.FolderNames
 import com.forganizer.core.ImportException
 import com.forganizer.core.MoveOp
+import com.forganizer.core.RemoveDirsReport
+import com.forganizer.core.SourceDir
 import com.forganizer.core.NameConflict
 import com.forganizer.core.NodeRef
 import com.forganizer.core.OrganizePlan
@@ -100,7 +102,15 @@ data class ApplyState(
 )
 
 /** Question shown when folders created by the app are empty: after applying, or after an undo. */
-data class EmptyDirsPrompt(val session: String, val rootId: String, val names: List<String>, val afterUndo: Boolean)
+data class EmptyDirsPrompt(
+    val session: String,
+    val rootId: String,
+    /** Empty folders the app created. */
+    val names: List<String>,
+    val afterUndo: Boolean,
+    /** The user's own nested folders that became empty after files were moved out (paths below the root). */
+    val emptied: List<String> = emptyList(),
+)
 
 data class RefineState(
     val running: Boolean = false,
@@ -354,7 +364,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 stats { it.copy(aiDone = done, aiTotal = total) }
             }
             val partial = if (res.failedBatches > 0) {
-                "ИИ не ответил на ${res.failedBatches} из ${res.totalBatches} запросов, эти файлы в блоке «Не определено». Запустите анализ ещё раз, чтобы разобрать их."
+                "Помощник не ответил на ${res.failedBatches} из ${res.totalBatches} запросов, эти файлы в блоке «Не определено». Запустите анализ ещё раз, чтобы разобрать их."
             } else null
             showPlan(
                 OrganizePlan.build(sum, res.plan, existing, s.allowExisting),
@@ -362,7 +372,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 extraNote = partial,
             )
         } catch (e: AiUnavailableException) {
-            _state.update { it.copy(scanError = e.message ?: "ИИ временно недоступен") }
+            _state.update { it.copy(scanError = e.message ?: "Помощник временно недоступен") }
         } catch (e: AiRequestException) {
             _state.update { it.copy(scanError = e.message) }
         }
@@ -378,7 +388,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val sum = summary ?: return
         val result = scan ?: return
         val s = _state.value.settings
-        val ai = ValidatedPlan(emptyList(), emptyList(), sum.objects.map { PlanLeave(it.id, "Анализ ИИ не выполнялся") })
+        val ai = ValidatedPlan(emptyList(), emptyList(), sum.objects.map { PlanLeave(it.id, "Классификация не выполнялась") })
         showPlan(OrganizePlan.build(sum, ai, result.existingFolders.map { it.name }, s.allowExisting), aiEmpty = false)
     }
 
@@ -449,7 +459,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val text = instruction.trim()
         if (text.isEmpty() || _state.value.refine.running) return
         if (s.refinesLeft <= 0) {
-            _state.update { it.copy(message = "Лимит правок ИИ на эту сессию исчерпан (${s.maxRefines}). Правьте план вручную.") }
+            _state.update { it.copy(message = "Лимит правок на эту сессию исчерпан (${s.maxRefines}). Правьте план вручную.") }
             return
         }
         _state.update { it.copy(refine = RefineState(running = true, instruction = text)) }
@@ -460,7 +470,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 publish()
                 if (!result.hasChanges) {
                     val msg = buildString {
-                        append(note.ifEmpty { "ИИ не предложил изменений." })
+                        append(note.ifEmpty { "Помощник не предложил изменений." })
                         if (result.skipped.isNotEmpty()) {
                             append("\n\nНе выполнено:\n")
                             append(result.skipped.joinToString("\n") { "• $it" })
@@ -477,7 +487,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             } catch (e: RefineLimitException) {
                 _state.update { it.copy(refine = RefineState(), message = e.message) }
             } catch (e: AiUnavailableException) {
-                _state.update { it.copy(refine = RefineState(instruction = text), message = e.message ?: "ИИ временно недоступен") }
+                _state.update { it.copy(refine = RefineState(instruction = text), message = e.message ?: "Помощник временно недоступен") }
             } catch (e: AiRequestException) {
                 _state.update { it.copy(refine = RefineState(instruction = text), message = e.message) }
             }
@@ -694,7 +704,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (report.accessLost) {
                 _state.update { it.copy(message = "Доступ к файлам отозван. Журнал сохранён, отменить можно позже.") }
             } else {
-                askAboutEmptyDirs(src, session, rootRef.id, afterUndo = false)
+                askAboutEmptyDirs(src, session, rootRef.id, afterUndo = false, sourceDirs = report.sourceDirs)
             }
         }
     }
@@ -718,21 +728,40 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /** Looks for empty folders this session created and, if there are any, asks whether to delete them. */
-    private suspend fun askAboutEmptyDirs(src: FileSource, session: String, rootId: String, afterUndo: Boolean) {
+    private suspend fun askAboutEmptyDirs(
+        src: FileSource, session: String, rootId: String, afterUndo: Boolean, sourceDirs: List<SourceDir> = emptyList(),
+    ) {
+        val applier = Applier(src, app.journal)
+        var emptied = emptyList<SourceDir>()
         val names = try {
-            withContext(Dispatchers.IO) { Applier(src, app.journal).emptyCreatedDirs(session) }
+            withContext(Dispatchers.IO) {
+                emptied = applier.emptiedSourceDirs(sourceDirs)
+                applier.emptyCreatedDirs(session)
+            }
         } catch (e: AccessLostException) {
             emptyList()
         }
-        if (names.isNotEmpty()) _state.update { it.copy(emptyDirs = EmptyDirsPrompt(session, rootId, names, afterUndo)) }
+        pendingEmptied = emptied
+        if (names.isNotEmpty() || emptied.isNotEmpty()) {
+            _state.update { it.copy(emptyDirs = EmptyDirsPrompt(session, rootId, names, afterUndo, emptied.map { d -> d.rel })) }
+        }
     }
+
+    private var pendingEmptied: List<SourceDir> = emptyList()
 
     fun removeEmptyDirs() {
         val p = _state.value.emptyDirs ?: return
         _state.update { it.copy(emptyDirs = null) }
         val src: FileSource = (if (p.afterUndo) sourceFor(p.rootId) else source) ?: return
         viewModelScope.launch {
-            val r = withContext(Dispatchers.IO) { Applier(src, app.journal).removeEmptyDirs(p.session) }
+            val emptied = pendingEmptied.also { pendingEmptied = emptyList() }
+            val rootRef = NodeRef(p.rootId)
+            val applier = Applier(src, app.journal)
+            val r = withContext(Dispatchers.IO) {
+                val created = if (p.names.isNotEmpty()) applier.removeEmptyDirs(p.session) else RemoveDirsReport(emptyList(), emptyList(), false)
+                val own = if (emptied.isNotEmpty()) applier.removeEmptiedSourceDirs(p.session, rootRef, emptied) else RemoveDirsReport(emptyList(), emptyList(), false)
+                RemoveDirsReport(created.removed + own.removed, created.kept + own.kept, created.accessLost || own.accessLost)
+            }
             val msg = buildString {
                 if (r.removed.isNotEmpty()) append("Удалено пустых папок: ${r.removed.size}.")
                 if (r.kept.isNotEmpty()) append("\nОставлены (там уже что-то лежит): ${r.kept.joinToString()}.")
@@ -743,7 +772,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun keepEmptyDirs() = _state.update { it.copy(emptyDirs = null) }
+    fun keepEmptyDirs() { pendingEmptied = emptyList(); _state.update { it.copy(emptyDirs = null) } }
 
     // --- settings -------------------------------------------------------------------------------
 
