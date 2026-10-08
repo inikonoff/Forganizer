@@ -2,6 +2,11 @@ package com.forganizer.app.ui
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import com.forganizer.core.PlanSession
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material3.FilledIconButton
+import androidx.compose.foundation.layout.imePadding
 import android.widget.Toast
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -110,6 +115,11 @@ fun PictureScreen(vm: MainViewModel, state: UiState) {
     }
     val clipboard = LocalClipboardManager.current
     val checked = plan.checkedItems.size
+    var refineText by rememberSaveable { mutableStateOf("") }
+    // If a request fails the text comes back, so nothing typed is lost.
+    LaunchedEffect(state.refine.running, state.refine.instruction) {
+        if (!state.refine.running && state.refine.instruction.isNotEmpty() && refineText.isEmpty()) refineText = state.refine.instruction
+    }
     // Folders are collapsed by default; the list holds the keys of the open ones.
     var openKeys by rememberSaveable { mutableStateOf(emptyList<String>()) }
     fun folderKey(name: String) = "folder:" + FolderNames.key(name)
@@ -168,10 +178,16 @@ fun PictureScreen(vm: MainViewModel, state: UiState) {
                 Column(
                     Modifier
                         .fillMaxWidth()
+                        .imePadding()
                         .navigationBarsPadding()
                         .padding(horizontal = 16.dp, vertical = 10.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
+                    RefineBar(
+                        state = state, text = refineText,
+                        onText = { refineText = it },
+                        onSend = { vm.refine(refineText); refineText = "" },
+                    )
                     Text("Выбрано: $checked из ${plan.items.size}", style = MaterialTheme.typography.titleSmall)
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
                         OutlinedButton(onClick = { dialog = Dialog.Save }, modifier = Modifier.weight(1f)) {
@@ -210,7 +226,6 @@ fun PictureScreen(vm: MainViewModel, state: UiState) {
             }
             leaveBlock(state, "leave" in openKeys) { toggle("leave") }
             duplicatesBlock(state, "dups" in openKeys) { toggle("dups") }
-            item(key = "refine") { RefineBox(vm, state) }
         }
     }
 
@@ -642,37 +657,41 @@ fun ApplyScreen(vm: MainViewModel, state: UiState) {
     }
 }
 
+/** "What to fix" input in the bottom bar: label with the edits counter, a field of up to two lines and a send icon. */
 @Composable
-private fun RefineBox(vm: MainViewModel, state: UiState) {
-    val r = state.refine
-    var text by remember { mutableStateOf("") }
-    Card(
-        Modifier.fillMaxWidth(),
-        shape = CardShape,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-    ) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+private fun RefineBar(state: UiState, text: String, onText: (String) -> Unit, onSend: () -> Unit) {
+    val running = state.refine.running
+    val left = state.refinesLeft
+    val canType = !running && left > 0
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Text("💡 Что поправить?", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            Hint("Правки $left/${PlanSession.MAX_REFINES}")
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             OutlinedTextField(
                 value = text,
-                onValueChange = { text = it.take(500) },
-                placeholder = { Text("Например: все PDF в Документы") },
-                enabled = !r.running && state.refinesLeft > 0,
+                onValueChange = { onText(it.take(500)) },
+                placeholder = {
+                    Text(
+                        if (left > 0) "Например: все PDF в Документы" else "Лимит правок исчерпан",
+                        maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    )
+                },
+                enabled = canType,
+                minLines = 1,
+                maxLines = 2,
+                shape = RoundedCornerShape(24.dp),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                keyboardActions = KeyboardActions(onSend = { vm.refine(text) }),
-                modifier = Modifier.fillMaxWidth(),
+                keyboardActions = KeyboardActions(onSend = { if (text.isNotBlank() && canType) onSend() }),
+                modifier = Modifier.weight(1f),
             )
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Hint(
-                    if (state.refinesLeft > 0) "Правок ИИ осталось: ${state.refinesLeft}. Ваши ручные решения он не меняет."
-                    else "Лимит правок ИИ исчерпан, правьте план вручную.",
-                    modifier = Modifier.weight(1f),
-                )
-                if (r.running) CircularProgressIndicator(Modifier.padding(4.dp))
-                else OutlinedButton(
-                    onClick = { vm.refine(text) },
-                    enabled = text.isNotBlank() && state.refinesLeft > 0,
-                ) { Text("Отправить") }
+            if (running) {
+                CircularProgressIndicator(Modifier.size(28.dp).padding(2.dp), strokeWidth = 3.dp)
+            } else {
+                FilledIconButton(onClick = onSend, enabled = text.isNotBlank() && canType) {
+                    Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Отправить")
+                }
             }
         }
     }
