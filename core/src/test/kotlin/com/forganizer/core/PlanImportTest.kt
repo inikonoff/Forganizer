@@ -65,3 +65,15 @@ class PlanImportTest {
         assertTrue(PlanImport.handoff("{\"x\":1}").endsWith("{\"x\":1}"))
     }
 }
+
+class CompactExportTest {
+    @Test fun compactIsSmallerAndStillImportable() {
+        val f = FileNode("/r/" + "x".repeat(80), "a.pdf", 10, 1, null, false)
+        val plan = OrganizePlan(listOf(PlanFolder("Docs", "")), listOf(PlanItem(f, "f1", "Docs", null, "r".repeat(200), 0.9, ItemSource.AI, true)), emptyList(), emptyList())
+        val pretty = PlanExport.toJson("root", plan)
+        val compact = PlanExport.toCompactJson("root", plan)
+        assertTrue(compact.length < pretty.length)
+        assertTrue(!compact.contains("\n"))
+        assertEquals(1, PlanImport.parse(compact, plan, false).placed)
+    }
+}

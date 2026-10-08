@@ -72,6 +72,7 @@ import com.forganizer.core.FolderNames
 import com.forganizer.core.OrganizePlan
 import com.forganizer.core.extension
 import com.forganizer.core.PlanFolder
+import com.forganizer.core.PlanImport
 import com.forganizer.core.PlanItem
 
 private sealed interface Dialog {
@@ -134,8 +135,15 @@ fun PictureScreen(vm: MainViewModel, state: UiState) {
                 HorizontalDivider()
                 DropdownMenuItem(text = { Text("Скопировать для нейросети") }, onClick = {
                     exportMenu = false
-                    clipboard.setText(AnnotatedString(vm.handoffText()))
-                    Toast.makeText(context, "Скопировано: вставьте в чат с нейросетью", Toast.LENGTH_LONG).show()
+                    val text = vm.handoffText()
+                    if (text.length <= PlanImport.CLIPBOARD_LIMIT) {
+                        clipboard.setText(AnnotatedString(text))
+                        Toast.makeText(context, "Скопировано (${text.length} зн.): вставьте в чат с нейросетью", Toast.LENGTH_LONG).show()
+                    } else {
+                        // Too big for a reliable clipboard: hand it over as a file the chat can attach.
+                        Toast.makeText(context, "Схема слишком большая для буфера (${text.length} зн.), отправляю файлом", Toast.LENGTH_LONG).show()
+                        ExportHelper.share(context, "forganizer-for-ai.txt", "text/plain", text)
+                    }
                 })
                 DropdownMenuItem(text = { Text("Загрузить свою схему…") }, onClick = {
                     exportMenu = false; dialog = Dialog.Import

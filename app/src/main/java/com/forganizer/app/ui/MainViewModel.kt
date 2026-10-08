@@ -609,7 +609,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun exportJson(): String = _state.value.plan?.let { PlanExport.toJson(_state.value.rootLabel, it) } ?: "{}"
     /** Instruction for a chat model plus the exported scheme, ready to paste or share. */
-    fun handoffText(): String = PlanImport.handoff(exportJson())
+    fun handoffText(): String =
+        PlanImport.handoff(_state.value.plan?.let { PlanExport.toCompactJson(_state.value.rootLabel, it) } ?: "{}")
 
     /** Loads a scheme made elsewhere as a new version of the plan (the previous one stays in "Версии плана"). */
     fun importScheme(text: String): Boolean {

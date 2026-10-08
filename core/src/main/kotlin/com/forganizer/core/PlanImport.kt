@@ -128,6 +128,9 @@ object PlanImport {
     }
 
     /** Text for a chat model: how to edit the exported scheme, followed by the scheme itself. */
+    /** Above this size the text is offered as a file: the Android clipboard is unreliable for very large texts. */
+    const val CLIPBOARD_LIMIT = 300_000
+
     fun handoff(json: String): String = """
 Ниже схема раскладки файлов по папкам в формате JSON. Предложи свой вариант и верни результат в том же формате.
 Правила:

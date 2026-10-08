@@ -40,6 +40,19 @@ object PlanExport {
         ),
     )
 
+    private val compact = Json { prettyPrint = false; encodeDefaults = true }
+
+    /** The same document without indentation and with short reasons: for pasting into a chat. */
+    fun toCompactJson(root: String, plan: OrganizePlan): String = compact.encodeToString(
+        ExportDoc.serializer(),
+        ExportDoc(
+            root = root,
+            folders = plan.folders.map { it.name },
+            plan = plan.items.map { ExportEntry(it.file.id, it.file.name, it.folder, it.bundle, it.reason.take(60), it.confidence, it.checked && it.stale == null, it.stale) },
+            leave = plan.leave.map { ExportLeave(it.file.id, it.file.name, it.reason.take(60)) },
+        ),
+    )
+
     fun toText(root: String, plan: OrganizePlan): String = buildString {
         appendLine("План для: $root")
         appendLine()
