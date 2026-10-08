@@ -3,8 +3,11 @@ package com.forganizer.app.ui
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -12,6 +15,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
@@ -37,6 +44,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TriStateCheckbox
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -58,12 +66,15 @@ import androidx.compose.material3.CircularProgressIndicator
 import java.text.DateFormat
 import java.util.Date
 import com.forganizer.core.FolderNames
+import com.forganizer.core.OrganizePlan
+import com.forganizer.core.extension
 import com.forganizer.core.PlanFolder
 import com.forganizer.core.PlanItem
 
 private sealed interface Dialog {
     data object Versions : Dialog
     data object Save : Dialog
+    data object Dump : Dialog
     data class Rename(val folder: String) : Dialog
     data class Move(val title: String, val ids: Set<String>, val from: String) : Dialog
 }
@@ -92,9 +103,8 @@ fun PictureScreen(vm: MainViewModel, state: UiState) {
     val saveDumpJson = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) {
         ExportHelper.save(context, it, vm.dumpJson())
     }
-    var dumpMenu by remember { mutableStateOf(false) }
     val checked = plan.checkedItems.size
-    // Folders are collapsed by default; the set holds the keys of the open ones.
+    // Folders are collapsed by default; the list holds the keys of the open ones.
     var openKeys by rememberSaveable { mutableStateOf(emptyList<String>()) }
     fun folderKey(name: String) = "folder:" + FolderNames.key(name)
     fun toggle(key: String) { openKeys = if (key in openKeys) openKeys - key else openKeys + key }
@@ -137,16 +147,16 @@ fun PictureScreen(vm: MainViewModel, state: UiState) {
                     Modifier
                         .fillMaxWidth()
                         .navigationBarsPadding()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Text("Выбрано: $checked из ${plan.items.size}", style = MaterialTheme.typography.bodyMedium)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    Text("Выбрано: $checked из ${plan.items.size}", style = MaterialTheme.typography.titleSmall)
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
                         OutlinedButton(onClick = { dialog = Dialog.Save }, modifier = Modifier.weight(1f)) {
-                            Text("Сохранить схему")
+                            Text("Сохранить схему", maxLines = 1)
                         }
-                        Button(onClick = vm::openPreview, enabled = checked > 0, modifier = Modifier.weight(1f)) {
-                            Text("Forganize")
+                        Button(onClick = vm::openPreview, enabled = checked > 0, modifier = Modifier.weight(1.3f)) {
+                            Text("Forganize", maxLines = 1)
                         }
                     }
                 }
@@ -162,34 +172,7 @@ fun PictureScreen(vm: MainViewModel, state: UiState) {
             ),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            item {
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(state.rootLabel, style = MaterialTheme.typography.titleMedium)
-                    Hint("Папок: ${plan.folders.size}, файлов в плане: ${plan.items.size}, не определено: ${plan.leave.size}")
-                    Hint("Записи с уверенностью ниже 70% по умолчанию не выбраны.")
-                    Hint("Нажмите на папку, чтобы увидеть файлы. У свёрнутой папки красным показано, сколько файлов не выбрано.")
-                    Box {
-                        OutlinedButton(onClick = { dumpMenu = true }) { Text("Снимок папки") }
-                        DropdownMenu(expanded = dumpMenu, onDismissRequest = { dumpMenu = false }) {
-                            DropdownMenuItem(text = { Text("Сохранить текстом в файл") }, onClick = {
-                                dumpMenu = false; saveDumpText.launch(vm.dumpFileName("txt"))
-                            })
-                            DropdownMenuItem(text = { Text("Сохранить JSON в файл") }, onClick = {
-                                dumpMenu = false; saveDumpJson.launch(vm.dumpFileName("json"))
-                            })
-                            DropdownMenuItem(text = { Text("Поделиться текстом") }, onClick = {
-                                dumpMenu = false; ExportHelper.share(context, vm.dumpFileName("txt"), "text/plain", vm.dumpText())
-                            })
-                            DropdownMenuItem(text = { Text("Поделиться JSON") }, onClick = {
-                                dumpMenu = false; ExportHelper.share(context, vm.dumpFileName("json"), "application/json", vm.dumpJson())
-                            })
-                        }
-                    }
-                    Hint("Снимок: список файлов и папок до сортировки (имена, размеры, даты). Сами файлы не копируются.")
-                    state.aiNote?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                }
-            }
-            item(key = "refine") { RefineBox(vm, state) }
+            item(key = "stats") { StatsBlock(plan, state) { dialog = Dialog.Dump } }
             for (folder in plan.folders) {
                 item(key = "folder:" + folder.name) {
                     FolderCard(
@@ -205,12 +188,20 @@ fun PictureScreen(vm: MainViewModel, state: UiState) {
             }
             leaveBlock(state, "leave" in openKeys) { toggle("leave") }
             duplicatesBlock(state, "dups" in openKeys) { toggle("dups") }
+            item(key = "refine") { RefineBox(vm, state) }
         }
     }
 
     when (val d = dialog) {
         Dialog.Versions -> VersionsDialog(state.versions, onDismiss = { dialog = null }) { vm.rollback(it); dialog = null }
         Dialog.Save -> SaveDialog(state.rootLabel, onDismiss = { dialog = null }) { vm.saveScheme(it); dialog = null }
+        Dialog.Dump -> DumpDialog(
+            onDismiss = { dialog = null },
+            onSaveText = { dialog = null; saveDumpText.launch(vm.dumpFileName("txt")) },
+            onSaveJson = { dialog = null; saveDumpJson.launch(vm.dumpFileName("json")) },
+            onShareText = { dialog = null; ExportHelper.share(context, vm.dumpFileName("txt"), "text/plain", vm.dumpText()) },
+            onShareJson = { dialog = null; ExportHelper.share(context, vm.dumpFileName("json"), "application/json", vm.dumpJson()) },
+        )
         is Dialog.Rename -> RenameDialog(d.folder, onDismiss = { dialog = null }) { if (vm.renameFolder(d.folder, it)) dialog = null }
         is Dialog.Move -> MoveDialog(d.title, plan.folders.filter { FolderNames.key(it.name) != FolderNames.key(d.from) }, onDismiss = { dialog = null }) {
             vm.moveFiles(d.ids, it); dialog = null
@@ -219,6 +210,51 @@ fun PictureScreen(vm: MainViewModel, state: UiState) {
     }
 }
 
+private val CardShape = RoundedCornerShape(20.dp)
+
+@Composable
+private fun cardColors() = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)
+
+/** Block 1: only the key numbers. Details appear only when there is something to look at. */
+@Composable
+private fun StatsBlock(plan: OrganizePlan, state: UiState, onDump: () -> Unit) {
+    val unchecked = plan.items.count { !it.checked && it.stale == null }
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Card(Modifier.fillMaxWidth(), shape = CardShape, colors = cardColors()) {
+            Row(Modifier.fillMaxWidth().padding(vertical = 14.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
+                StatCell("📂", plan.folders.size, "папок")
+                StatCell("📄", plan.items.size, "файлов")
+                StatCell("⚠️", plan.leave.size, "не определено", warn = plan.leave.isNotEmpty())
+            }
+        }
+        state.aiNote?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Hint(
+                if (unchecked > 0) "${state.rootLabel} · не выбрано: $unchecked (уверенность ниже 70%)" else state.rootLabel,
+                modifier = Modifier.weight(1f), maxLines = 2,
+            )
+            TextButton(onClick = onDump) { Text("Снимок папки", maxLines = 1) }
+        }
+    }
+}
+
+@Composable
+private fun StatCell(icon: String, value: Int, label: String, warn: Boolean = false) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(
+            "$icon $value",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.SemiBold,
+            color = if (warn) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+        )
+        Hint(label)
+    }
+}
+
+/**
+ * Block 2: one folder is one object. The whole header row opens and closes it; the chevron on the right
+ * shows the state. The folder checkbox sits next to the name, file rows below are nested and lighter.
+ */
 @Composable
 private fun FolderCard(
     folder: PlanFolder,
@@ -230,98 +266,156 @@ private fun FolderCard(
     onMove: (String, Set<String>) -> Unit,
 ) {
     var menu by remember { mutableStateOf(false) }
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(vertical = 8.dp)) {
+    val selected = items.count { it.checked }
+    val notSelected = items.size - selected
+    Card(Modifier.fillMaxWidth(), shape = CardShape, colors = cardColors()) {
+        Column {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.clickable(onClick = onToggle).padding(end = 4.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onToggle)
+                    .padding(start = 12.dp, top = 10.dp, bottom = 10.dp, end = 4.dp),
             ) {
-                val st = toggleState(items)
-                TriStateCheckbox(state = st, onClick = { onCheck(items.map { it.file.id }.toSet(), st != ToggleableState.On) })
-                Text(if (expanded) "▾" else "▸", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(end = 6.dp))
+                Box(
+                    Modifier.size(40.dp).background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(12.dp)),
+                    contentAlignment = Alignment.Center,
+                ) { Text("📁") }
+                Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
-                    Text(
-                        folder.name + if (folder.existing) " (существующая)" else " (новая)",
-                        style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
-                    )
-                    val selected = items.count { it.checked }
-                    val notSelected = items.size - selected
-                    val sub = listOf(folder.desc, "файлов: ${items.size}", "выбрано: $selected").filter { it.isNotEmpty() }.joinToString(" · ")
-                    Hint(sub)
-                    if (notSelected > 0) Hint("не выбрано: $notSelected", color = MaterialTheme.colorScheme.error)
-                    if (!expanded) {
-                        Hint(
-                            items.take(3).joinToString(", ") { it.file.name } + if (items.size > 3) "…" else "",
-                            modifier = Modifier.padding(top = 2.dp),
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            folder.name,
+                            style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
+                            maxLines = 2, overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
+                        Text(
+                            if (folder.existing) "  существующая" else "  новая",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
+                    if (folder.desc.isNotEmpty()) Hint(folder.desc, maxLines = 2)
+                    if (notSelected > 0) {
+                        Text(
+                            "⚠ не выбрано $notSelected из ${items.size}",
+                            style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    } else {
+                        Hint("файлов: ${items.size} · выбрано все")
+                    }
                 }
+                val st = toggleState(items)
+                TriStateCheckbox(state = st, onClick = { onCheck(items.map { it.file.id }.toSet(), st != ToggleableState.On) })
+                Text(
+                    if (expanded) "▾" else "▸",
+                    style = MaterialTheme.typography.headlineSmall,
+                    modifier = Modifier.padding(start = 2.dp, end = 10.dp),
+                )
+            }
+            if (!expanded) return@Column
+            HorizontalDivider(Modifier.padding(horizontal = 12.dp))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp),
+            ) {
+                Hint("Нажмите на заголовок, чтобы свернуть", modifier = Modifier.weight(1f))
                 if (!folder.existing) {
                     IconButton(onClick = onRename) { Icon(Icons.Default.Edit, contentDescription = "Переименовать") }
                 }
-                IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, contentDescription = "Ещё") }
-                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                    DropdownMenuItem(text = { Text("Перенести все файлы в другую папку") }, onClick = {
-                        menu = false; onMove("Все файлы из «${folder.name}»", items.map { it.file.id }.toSet())
-                    })
+                Box {
+                    IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, contentDescription = "Ещё") }
+                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                        DropdownMenuItem(text = { Text("Перенести все файлы в другую папку") }, onClick = {
+                            menu = false; onMove("Все файлы из «${folder.name}»", items.map { it.file.id }.toSet())
+                        })
+                    }
                 }
             }
-            if (!expanded) return@Column
-            val bundles = items.filter { it.bundle != null }.groupBy { it.bundle!! }
-            for ((name, group) in bundles) {
-                HorizontalDivider(Modifier.padding(vertical = 4.dp))
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 12.dp, end = 4.dp)) {
-                    val st = toggleState(group)
-                    TriStateCheckbox(state = st, onClick = { onCheck(group.map { it.file.id }.toSet(), st != ToggleableState.On) })
-                    Text("Набор: $name", modifier = Modifier.weight(1f), fontWeight = FontWeight.Medium)
-                    TextButton(onClick = { onMove("Набор «$name»", group.map { it.file.id }.toSet()) }) { Text("Перенести") }
+            Row(Modifier.padding(start = 24.dp, end = 8.dp, bottom = 10.dp).height(IntrinsicSize.Min)) {
+                VerticalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                Column(Modifier.weight(1f)) {
+                    val bundles = items.filter { it.bundle != null }.groupBy { it.bundle!! }
+                    for ((name, group) in bundles) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 4.dp)) {
+                            val st = toggleState(group)
+                            TriStateCheckbox(
+                                state = st, modifier = Modifier.size(36.dp),
+                                onClick = { onCheck(group.map { it.file.id }.toSet(), st != ToggleableState.On) },
+                            )
+                            Text("Набор: $name", modifier = Modifier.weight(1f).padding(start = 6.dp), fontWeight = FontWeight.Medium)
+                            TextButton(onClick = { onMove("Набор «$name»", group.map { it.file.id }.toSet()) }) { Text("Перенести") }
+                        }
+                        group.forEach { FileRow(it, onCheck, Modifier.padding(start = 14.dp)) }
+                    }
+                    items.filter { it.bundle == null }.forEach { FileRow(it, onCheck) }
                 }
-                group.forEach { FileRow(it, indent = 24, onCheck) }
             }
-            val singles = items.filter { it.bundle == null }
-            if (singles.isNotEmpty() && bundles.isNotEmpty()) HorizontalDivider(Modifier.padding(vertical = 4.dp))
-            singles.forEach { FileRow(it, indent = 0, onCheck) }
         }
     }
 }
 
+/** A thin row: small checkbox, type glyph, name, short reason and a quiet confidence number. */
 @Composable
-private fun FileRow(item: PlanItem, indent: Int, onCheck: (Set<String>, Boolean) -> Unit) {
+private fun FileRow(item: PlanItem, onCheck: (Set<String>, Boolean) -> Unit, modifier: Modifier = Modifier) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .clickable(enabled = item.stale == null) { onCheck(setOf(item.file.id), !item.checked) }
-            .padding(start = (8 + indent).dp, end = 12.dp),
+            .padding(start = 4.dp, end = 8.dp, top = 2.dp, bottom = 2.dp),
     ) {
-        Checkbox(checked = item.checked, enabled = item.stale == null, onCheckedChange = { onCheck(setOf(item.file.id), it) })
+        Checkbox(
+            checked = item.checked, enabled = item.stale == null,
+            onCheckedChange = { onCheck(setOf(item.file.id), it) },
+            modifier = Modifier.size(36.dp),
+        )
+        Text(fileGlyph(item.file.name), modifier = Modifier.padding(horizontal = 6.dp))
         Column(Modifier.weight(1f)) {
-            Text(item.file.name, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(item.file.name, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
             if (item.stale != null) Hint("Устарело: ${item.stale}", color = MaterialTheme.colorScheme.error)
-            else if (item.reason.isNotEmpty()) Hint(item.reason)
+            else if (item.reason.isNotEmpty()) Hint(item.reason, maxLines = 1)
         }
         ConfidenceBadge(item.confidence)
     }
+}
+
+private fun fileGlyph(name: String): String = when (extension(name)) {
+    "pdf" -> "📕"
+    "xls", "xlsx", "csv", "ods" -> "📊"
+    "ppt", "pptx" -> "📽️"
+    "jpg", "jpeg", "png", "webp", "gif", "heic", "ico", "svg" -> "🖼️"
+    "mp3", "wav", "ogg", "m4a", "flac", "opus" -> "🎵"
+    "mp4", "mkv", "mov", "avi", "webm" -> "🎬"
+    "zip", "rar", "7z", "tar", "gz" -> "📦"
+    "apk", "xapk", "apks" -> "📱"
+    "py", "js", "html", "css", "java", "kt", "json", "sql", "sh" -> "💻"
+    else -> "📄"
 }
 
 private fun LazyListScope.leaveBlock(state: UiState, expanded: Boolean, onToggle: () -> Unit) {
     val leave = state.plan?.leave.orEmpty()
     if (leave.isEmpty()) return
     item(key = "leave") {
-        Card(
-            Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-        ) {
+        Card(Modifier.fillMaxWidth(), shape = CardShape, colors = cardColors()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Row(Modifier.fillMaxWidth().clickable(onClick = onToggle), verticalAlignment = Alignment.CenterVertically) {
-                    Text(if (expanded) "▾" else "▸", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(end = 8.dp))
-                    SectionTitle("Не определено (${leave.size})")
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            "⚠️ Не определено (${leave.size})",
+                            style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                        Hint("Эти файлы останутся на месте" + if (!expanded) ". Нажмите, чтобы посмотреть." else "")
+                    }
+                    Text(if (expanded) "▾" else "▸", style = MaterialTheme.typography.headlineSmall)
                 }
-                Hint("Эти файлы останутся на месте." + if (!expanded) " Нажмите, чтобы посмотреть список." else "")
                 if (expanded) {
                     leave.take(300).forEach { l ->
                         Column {
-                            Text(l.file.name, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            Text(l.file.name, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
                             Hint(l.reason)
                         }
                     }
@@ -336,26 +430,53 @@ private fun LazyListScope.duplicatesBlock(state: UiState, expanded: Boolean, onT
     val dups = state.duplicates
     if (dups.isEmpty()) return
     item(key = "dups") {
-        Card(
-            Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-        ) {
+        Card(Modifier.fillMaxWidth(), shape = CardShape, colors = cardColors()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Row(Modifier.fillMaxWidth().clickable(onClick = onToggle), verticalAlignment = Alignment.CenterVertically) {
-                    Text(if (expanded) "▾" else "▸", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(end = 8.dp))
-                    SectionTitle("Возможные дубли (${dups.size} групп)")
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            "👯 Возможные дубли (${dups.size} групп)",
+                            style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
+                        )
+                        Hint("Одинаковое содержимое. Ничего не удаляется, решение за вами" + if (!expanded) ". Нажмите, чтобы посмотреть." else "")
+                    }
+                    Text(if (expanded) "▾" else "▸", style = MaterialTheme.typography.headlineSmall)
                 }
-                Hint("Одинаковое содержимое. Приложение ничего не удаляет, решение за вами." + if (!expanded) " Нажмите, чтобы посмотреть." else "")
                 if (expanded) {
                     dups.forEach { group ->
                         HorizontalDivider()
                         Hint(formatSize(group.first().size))
-                        group.forEach { Text(it.name, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                        group.forEach { Text(it.name, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis) }
                     }
                 }
             }
         }
     }
+}
+
+@Composable
+private fun DumpDialog(
+    onDismiss: () -> Unit,
+    onSaveText: () -> Unit,
+    onSaveJson: () -> Unit,
+    onShareText: () -> Unit,
+    onShareJson: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Снимок папки") },
+        text = {
+            Column {
+                Hint("Список файлов и папок до сортировки: имена, размеры, даты. Сами файлы не копируются.")
+                Spacer(Modifier.height(8.dp))
+                TextButton(onClick = onSaveText) { Text("Сохранить текстом в файл") }
+                TextButton(onClick = onSaveJson) { Text("Сохранить JSON в файл") }
+                TextButton(onClick = onShareText) { Text("Поделиться текстом") }
+                TextButton(onClick = onShareJson) { Text("Поделиться JSON") }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Закрыть") } },
+    )
 }
 
 @Composable
@@ -498,13 +619,17 @@ fun ApplyScreen(vm: MainViewModel, state: UiState) {
 private fun RefineBox(vm: MainViewModel, state: UiState) {
     val r = state.refine
     var text by remember { mutableStateOf("") }
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            SectionTitle("Что поправить?")
+    Card(
+        Modifier.fillMaxWidth(),
+        shape = CardShape,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+    ) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("💡 Что поправить?", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
             OutlinedTextField(
                 value = text,
                 onValueChange = { text = it.take(500) },
-                placeholder = { Text("Например: все PDF в Документы, а скриншоты отдельно") },
+                placeholder = { Text("Например: все PDF в Документы") },
                 enabled = !r.running && state.refinesLeft > 0,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                 keyboardActions = KeyboardActions(onSend = { vm.refine(text) }),
@@ -512,12 +637,12 @@ private fun RefineBox(vm: MainViewModel, state: UiState) {
             )
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Hint(
-                    if (state.refinesLeft > 0) "Осталось правок ИИ: ${state.refinesLeft}. Ваши ручные решения ИИ не меняет."
+                    if (state.refinesLeft > 0) "Правок ИИ осталось: ${state.refinesLeft}. Ваши ручные решения он не меняет."
                     else "Лимит правок ИИ исчерпан, правьте план вручную.",
                     modifier = Modifier.weight(1f),
                 )
                 if (r.running) CircularProgressIndicator(Modifier.padding(4.dp))
-                else Button(
+                else OutlinedButton(
                     onClick = { vm.refine(text) },
                     enabled = text.isNotBlank() && state.refinesLeft > 0,
                 ) { Text("Отправить") }

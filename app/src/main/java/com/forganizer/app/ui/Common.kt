@@ -27,6 +27,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
@@ -80,21 +81,25 @@ fun SectionTitle(text: String) {
 
 @Composable
 fun ConfidenceBadge(confidence: Double) {
-    val color = confidenceColor(confidence)
-    Surface(color = color.copy(alpha = 0.15f), shape = MaterialTheme.shapes.small) {
-        Text(
-            "${(confidence * 100).toInt()}%",
-            color = color,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-        )
-    }
+    Text(
+        "${(confidence * 100).toInt()}%",
+        color = confidenceColor(confidence),
+        fontSize = 11.sp,
+        fontWeight = FontWeight.Medium,
+    )
 }
 
 @Composable
-fun Hint(text: String, modifier: Modifier = Modifier, color: Color = MaterialTheme.colorScheme.onSurfaceVariant) {
-    Text(text, style = MaterialTheme.typography.bodySmall, color = color, modifier = modifier)
+fun Hint(
+    text: String,
+    modifier: Modifier = Modifier,
+    color: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    maxLines: Int = Int.MAX_VALUE,
+) {
+    Text(
+        text, style = MaterialTheme.typography.bodySmall, color = color, modifier = modifier,
+        maxLines = maxLines, overflow = if (maxLines == Int.MAX_VALUE) TextOverflow.Clip else TextOverflow.Ellipsis,
+    )
 }
 
 fun formatSize(bytes: Long): String = when {
