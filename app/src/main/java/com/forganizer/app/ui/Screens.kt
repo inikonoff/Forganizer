@@ -6,7 +6,11 @@ import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -162,6 +166,23 @@ private fun AccessScreen(vm: MainViewModel, state: UiState) {
     }
 }
 
+/** A thin rounded bar without the stop dot and gap; the value animates smoothly. [progress] null means indeterminate. */
+@Composable
+private fun SleekProgress(progress: Float?) {
+    val bar = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(50))
+    val track = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
+    if (progress == null) {
+        LinearProgressIndicator(modifier = bar, color = MaterialTheme.colorScheme.primary, trackColor = track, strokeCap = StrokeCap.Round)
+    } else {
+        val shown by animateFloatAsState(progress.coerceIn(0f, 1f), animationSpec = tween(400), label = "progress")
+        LinearProgressIndicator(
+            progress = { shown }, modifier = bar,
+            color = MaterialTheme.colorScheme.primary, trackColor = track,
+            strokeCap = StrokeCap.Round, gapSize = 0.dp, drawStopIndicator = {},
+        )
+    }
+}
+
 /** Progress card over the blurred folder screen: no dead-end screen, the folder stays in sight. */
 @Composable
 private fun ScanOverlay(vm: MainViewModel, state: UiState) {
@@ -183,11 +204,11 @@ private fun ScanOverlay(vm: MainViewModel, state: UiState) {
                 if (state.scanError == null) {
                     if (s.aiTotal > 0) {
                         val p = s.aiDone.toFloat() / s.aiTotal
-                        LinearProgressIndicator(progress = { p }, modifier = Modifier.fillMaxWidth())
+                        SleekProgress(p)
                         Text(s.stage + "  " + (p * 100).toInt() + "%", style = MaterialTheme.typography.bodyMedium)
                         Hint("Запросов к ИИ: ${s.aiDone} из ${s.aiTotal}. Бесплатный сервер может просыпаться до минуты.")
                     } else {
-                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                        SleekProgress(null)
                         Text(s.stage + "…", style = MaterialTheme.typography.bodyMedium)
                     }
                 }
