@@ -6,7 +6,11 @@ import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.ui.draw.clip
@@ -166,6 +170,22 @@ private fun AccessScreen(vm: MainViewModel, state: UiState) {
     }
 }
 
+/**
+ * Progress that never stands still: it jumps to the confirmed share when a request finishes and then
+ * creeps slowly towards the next step, so the bar fills smoothly instead of in 1/N stages.
+ */
+@Composable
+private fun creepingProgress(done: Int, total: Int): Float {
+    val value = remember { Animatable(0f) }
+    LaunchedEffect(done, total) {
+        val confirmed = (done.toFloat() / total).coerceIn(0f, 1f)
+        if (value.value < confirmed) value.animateTo(confirmed, tween(500))
+        val ceiling = (confirmed + 0.9f / total).coerceAtMost(0.99f)
+        if (ceiling > value.value) value.animateTo(ceiling, tween(30_000, easing = LinearOutSlowInEasing))
+    }
+    return value.value
+}
+
 /** A thin rounded bar without the stop dot and gap; the value animates smoothly. [progress] null means indeterminate. */
 @Composable
 private fun SleekProgress(progress: Float?) {
@@ -203,22 +223,21 @@ private fun ScanOverlay(vm: MainViewModel, state: UiState) {
                 Text("🔍 Анализ: ${state.rootLabel}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 2)
                 if (state.scanError == null) {
                     if (s.aiTotal > 0) {
-                        val p = s.aiDone.toFloat() / s.aiTotal
+                        val p = creepingProgress(s.aiDone, s.aiTotal)
                         SleekProgress(p)
-                        Text(s.stage + "  " + (p * 100).toInt() + "%", style = MaterialTheme.typography.bodyMedium)
-                        Hint("Запросов к ИИ: ${s.aiDone} из ${s.aiTotal}. Бесплатный сервер может просыпаться до минуты.")
+                        Text(s.stage + "  " + (p * 100).toInt().coerceAtMost(99) + "%", style = MaterialTheme.typography.bodyMedium)
                     } else {
                         SleekProgress(null)
                         Text(s.stage + "…", style = MaterialTheme.typography.bodyMedium)
                     }
                 }
                 val rows = buildList {
-                    add("📄  Файлов" to s.files)
-                    if (s.clusters > 0) add("🗂  Кластеров" to s.clusters)
-                    if (s.archives > 0) add("📦  Архивов просмотрено" to s.archives)
-                    if (s.duplicates > 0) add("👯  Возможных дублей" to s.duplicates)
-                    if (s.projects > 0) add("🧩  Проектов оставлено" to s.projects)
-                    if (s.skipped > 0) add("⛔  Недоступно" to s.skipped)
+                    add("📄  Всего файлов" to s.files)
+                    if (s.clusters > 0) add("📁  Групп файлов" to s.clusters)
+                    if (s.archives > 0) add("📦  Обработано архивов" to s.archives)
+                    if (s.duplicates > 0) add("📑  Возможные дубликаты" to s.duplicates)
+                    if (s.projects > 0) add("🧩  Проектов не тронуто" to s.projects)
+                    if (s.skipped > 0) add("⛔  Пропущено" to s.skipped)
                 }
                 Column(
                     Modifier
