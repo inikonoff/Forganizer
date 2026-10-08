@@ -83,6 +83,10 @@ fun App(vm: MainViewModel) {
         Screen.SETTINGS -> SettingsScreen(vm, state)
     }
 
+    state.emptyDirs?.let { p ->
+        if (state.undoReport == null) EmptyDirsDialog(p, vm)
+    }
+
     state.message?.let { msg ->
         val clipboard = LocalClipboardManager.current
         AlertDialog(
@@ -268,3 +272,24 @@ private fun ScanOverlay(vm: MainViewModel, state: UiState) {
     }
 }
 
+
+/** Asks whether to delete empty folders the app created; the only deletion the app ever does, and only on request. */
+@Composable
+internal fun EmptyDirsDialog(p: EmptyDirsPrompt, vm: MainViewModel) {
+    AlertDialog(
+        onDismissRequest = vm::keepEmptyDirs,
+        title = { Text(if (p.afterUndo) "Удалить созданные папки?" else "Есть пустые папки") },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    if (p.afterUndo) "Все файлы возвращены на место. Папки, которые создало приложение, теперь пусты:"
+                    else "Эти папки созданы приложением, но в них ничего не попало:",
+                )
+                Text(p.names.joinToString("\n") { "📁 $it" }, fontWeight = FontWeight.SemiBold)
+                Hint("Удалятся только эти пустые папки. Если в какой-то уже что-то лежит, она останется.")
+            }
+        },
+        confirmButton = { TextButton(onClick = vm::removeEmptyDirs) { Text("Да, удалить") } },
+        dismissButton = { TextButton(onClick = vm::keepEmptyDirs) { Text("Нет, я сам") } },
+    )
+}

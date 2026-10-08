@@ -103,13 +103,23 @@ fun JournalScreen(vm: MainViewModel, state: UiState) {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("Возвращено файлов: ${r.restored}, ошибок: ${r.failed.size}")
                     r.failed.take(20).forEach { Hint("${it.name}: ${it.reason}") }
-                    if (r.createdDirs.isNotEmpty()) {
-                        Text("Папки, созданные приложением, остались на месте (приложение ничего не удаляет):")
+                    state.emptyDirs?.let { p ->
+                        Text("Папки, созданные приложением, теперь пусты. Удалить их?")
+                        Text(p.names.joinToString("\n") { "📁 $it" }, fontWeight = FontWeight.SemiBold)
+                        Hint("Удалятся только эти пустые папки. Если в какой-то уже что-то лежит, она останется.")
+                    } ?: if (r.createdDirs.isNotEmpty()) {
+                        Text("Папки, созданные приложением, остались на месте:")
                         Hint(r.createdDirs.joinToString())
-                    }
+                    } else Unit
                 }
             },
-            confirmButton = { TextButton(onClick = vm::dismissMessage) { Text("OK") } },
+            confirmButton = {
+                if (state.emptyDirs != null) TextButton(onClick = { vm.removeEmptyDirs(); vm.dismissMessage() }) { Text("Да, удалить") }
+                else TextButton(onClick = vm::dismissMessage) { Text("OK") }
+            },
+            dismissButton = {
+                if (state.emptyDirs != null) TextButton(onClick = vm::dismissMessage) { Text("Нет, я сам") }
+            },
         )
     }
 }

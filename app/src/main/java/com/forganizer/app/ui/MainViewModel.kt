@@ -99,6 +99,9 @@ data class ApplyState(
     val report: ApplyReport? = null,
 )
 
+/** Question shown when folders created by the app are empty: after applying, or after an undo. */
+data class EmptyDirsPrompt(val session: String, val rootId: String, val names: List<String>, val afterUndo: Boolean)
+
 data class RefineState(
     val running: Boolean = false,
     val instruction: String = "",
@@ -129,6 +132,7 @@ data class UiState(
     val apply: ApplyState = ApplyState(),
     val sessions: List<SessionSummary> = emptyList(),
     val undoRunning: Boolean = false,
+    val emptyDirs: EmptyDirsPrompt? = null,
     val undoReport: UndoReport? = null,
     val message: String? = null,
 )
@@ -189,7 +193,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (screen == Screen.ACCESS || screen == Screen.FOLDER) viewModelScope.launch { route() }
     }
 
-    fun dismissMessage() = _state.update { it.copy(message = null, undoReport = null) }
+    fun dismissMessage() = _state.update { it.copy(message = null, undoReport = null, emptyDirs = null) }
 
     // --- consent & access -------------------------------------------------------------------
 
@@ -689,6 +693,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _state.update { it.copy(apply = it.apply.copy(running = false, report = report)) }
             if (report.accessLost) {
                 _state.update { it.copy(message = "Доступ к файлам отозван. Журнал сохранён, отменить можно позже.") }
+            } else {
+                askAboutEmptyDirs(src, session, rootRef.id, afterUndo = false)
             }
         }
     }
@@ -707,8 +713,37 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val report = withContext(Dispatchers.IO) { Applier(src, app.journal).undo(session.session) }
             _state.update { it.copy(undoRunning = false, undoReport = report, sessions = app.db.journal().sessions()) }
+            if (!report.accessLost) askAboutEmptyDirs(src, session.session, session.rootId, afterUndo = true)
         }
     }
+
+    /** Looks for empty folders this session created and, if there are any, asks whether to delete them. */
+    private suspend fun askAboutEmptyDirs(src: FileSource, session: String, rootId: String, afterUndo: Boolean) {
+        val names = try {
+            withContext(Dispatchers.IO) { Applier(src, app.journal).emptyCreatedDirs(session) }
+        } catch (e: AccessLostException) {
+            emptyList()
+        }
+        if (names.isNotEmpty()) _state.update { it.copy(emptyDirs = EmptyDirsPrompt(session, rootId, names, afterUndo)) }
+    }
+
+    fun removeEmptyDirs() {
+        val p = _state.value.emptyDirs ?: return
+        _state.update { it.copy(emptyDirs = null) }
+        val src: FileSource = (if (p.afterUndo) sourceFor(p.rootId) else source) ?: return
+        viewModelScope.launch {
+            val r = withContext(Dispatchers.IO) { Applier(src, app.journal).removeEmptyDirs(p.session) }
+            val msg = buildString {
+                if (r.removed.isNotEmpty()) append("Удалено пустых папок: ${r.removed.size}.")
+                if (r.kept.isNotEmpty()) append("\nОставлены (там уже что-то лежит): ${r.kept.joinToString()}.")
+                if (r.accessLost) append("\nДоступ к файлам потерян, часть папок не обработана.")
+            }
+            if (msg.isNotEmpty()) _state.update { it.copy(message = msg.trim()) }
+            _state.update { it.copy(sessions = app.db.journal().sessions()) }
+        }
+    }
+
+    fun keepEmptyDirs() = _state.update { it.copy(emptyDirs = null) }
 
     // --- settings -------------------------------------------------------------------------------
 

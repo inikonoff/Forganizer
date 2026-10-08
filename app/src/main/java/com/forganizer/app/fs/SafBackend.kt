@@ -106,6 +106,22 @@ class SafBackend(context: Context, val treeUri: Uri) : FileSource {
         }
     }
 
+    override suspend fun deleteEmptyDir(dir: NodeRef): Boolean = withContext(Dispatchers.IO) {
+        guard {
+            val uri = Uri.parse(dir.id)
+            val node = query(uri)?.first ?: return@guard false
+            if (!node.isDir) return@guard false
+            // deleteDocument on a directory is recursive, so emptiness is verified right before.
+            val listing = list(dir)
+            if (listing.nodes.isNotEmpty() || listing.skipped > 0) return@guard false
+            try {
+                DocumentsContract.deleteDocument(resolver, uri)
+            } catch (e: Exception) {
+                Log.w(TAG, "delete empty dir failed", e); false
+            }
+        }
+    }
+
     override suspend fun move(node: FileNode, fromDir: NodeRef, targetDir: NodeRef, targetName: String): MoveResult =
         withContext(Dispatchers.IO) {
             guard {

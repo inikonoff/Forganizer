@@ -59,6 +59,13 @@ interface FileSource {
      */
     suspend fun move(node: FileNode, fromDir: NodeRef, targetDir: NodeRef, targetName: String): MoveResult
 
+    /**
+     * Removes [dir] only if it is an empty directory; returns whether it was removed. The one place where
+     * the app deletes anything, used solely for folders it created itself and only on the user's request.
+     * Implementations must re-check emptiness themselves (SAF deletion is recursive).
+     */
+    suspend fun deleteEmptyDir(dir: NodeRef): Boolean = false
+
     /** Reads file bytes locally (duplicate hashing, archive entry names); contents are never sent anywhere. */
     fun openRead(node: FileNode): InputStream
 

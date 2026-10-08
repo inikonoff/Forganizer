@@ -51,6 +51,8 @@ data class UndoReport(
     val accessLost: Boolean,
 )
 
+data class RemoveDirsReport(val removed: List<String>, val kept: List<String>, val accessLost: Boolean)
+
 class Applier(
     private val source: FileSource,
     private val journal: Journal,
@@ -155,6 +157,41 @@ class Applier(
         } catch (e: AccessLostException) {
             return ApplyReport(session, done, skipped, failed + OpError("", e.message ?: "Доступ потерян"), created, stopped = true, accessLost = true)
         }
+    }
+
+    /**
+     * Names of folders this session created that are empty now. Only folders the app itself created
+     * (MKDIR records still marked DONE) are ever considered.
+     */
+    suspend fun emptyCreatedDirs(session: String): List<String> =
+        createdDirRecords(session).filter { isEmptyDir(NodeRef(it.dstId!!)) }.map { it.dstName }
+
+    /** Deletes the still-empty folders created by [session]; anything that got a file meanwhile is kept. */
+    suspend fun removeEmptyDirs(session: String): RemoveDirsReport {
+        val removed = mutableListOf<String>()
+        val kept = mutableListOf<String>()
+        try {
+            for (rec in createdDirRecords(session)) {
+                val ref = NodeRef(rec.dstId!!)
+                if (isEmptyDir(ref) && source.deleteEmptyDir(ref)) {
+                    journal.update(rec.copy(status = JournalStatus.UNDONE, time = now()))
+                    removed += rec.dstName
+                } else kept += rec.dstName
+            }
+        } catch (e: AccessLostException) {
+            return RemoveDirsReport(removed, kept, accessLost = true)
+        }
+        return RemoveDirsReport(removed, kept, accessLost = false)
+    }
+
+    private suspend fun createdDirRecords(session: String) =
+        journal.session(session).filter { it.kind == JournalKind.MKDIR && it.status == JournalStatus.DONE && it.dstId != null }
+
+    private suspend fun isEmptyDir(ref: NodeRef): Boolean {
+        val node = source.stat(ref) ?: return false
+        if (!node.isDir) return false
+        val listing = source.list(ref)
+        return listing.nodes.isEmpty() && listing.skipped == 0
     }
 
     /** Walks the journal backwards and returns moved files to their original folder. */

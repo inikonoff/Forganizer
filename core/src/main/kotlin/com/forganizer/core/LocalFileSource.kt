@@ -55,6 +55,16 @@ open class LocalFileSource(
         } else MoveResult.Failed("Не удалось переместить")
     }
 
+    override suspend fun deleteEmptyDir(dir: NodeRef): Boolean {
+        val d = File(dir.id)
+        if (!d.isDirectory) return false
+        val children = d.list() ?: return false
+        if (children.isNotEmpty()) return false
+        val ok = d.delete()
+        if (ok) onChanged(listOf(d.path))
+        return ok
+    }
+
     override fun openRead(node: FileNode): InputStream = FileInputStream(File(node.id))
 
     override fun localFile(node: FileNode): File? = File(node.id).takeIf { it.isFile }

@@ -37,6 +37,12 @@ class InMemoryFileSource : FileSource {
         return MoveResult.Moved(node(node.id)!!)
     }
     override fun openRead(node: FileNode): InputStream = ByteArrayInputStream(entries.getValue(node.id).data)
+    override suspend fun deleteEmptyDir(dir: NodeRef): Boolean {
+        val e = entries[dir.id] ?: return false
+        if (!e.isDir || entries.values.any { it.parent == dir.id }) return false
+        entries.remove(dir.id)
+        return true
+    }
 
     fun parentOf(id: String) = entries[id]?.parent
     fun modify(id: String) { entries[id]!!.modified += 5 }
