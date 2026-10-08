@@ -149,43 +149,6 @@ private fun AccessScreen(vm: MainViewModel, state: UiState) {
 }
 
 @Composable
-private fun FolderScreen(vm: MainViewModel, state: UiState) {
-    val treePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { vm.onTreePicked(it) }
-    ScreenScaffold(
-        "Выбор папки",
-        actions = {
-            IconButton(onClick = vm::openJournal) { Icon(Icons.AutoMirrored.Filled.List, contentDescription = "Журнал") }
-            IconButton(onClick = vm::openSettings) { Icon(Icons.Default.Settings, contentDescription = "Настройки") }
-        },
-    ) { padding ->
-        ScrollColumn(padding) {
-            OutlinedButton(onClick = vm::openSavedList, modifier = Modifier.fillMaxWidth()) { Text("Сохранённые схемы") }
-            if (state.mode == Mode.FULL) {
-                Text("Какую папку разобрать?")
-                for (f in Access.standardFolders()) {
-                    Button(onClick = { vm.startScanFull(f.dir) }, modifier = Modifier.fillMaxWidth()) { Text(f.label) }
-                }
-                OutlinedButton(onClick = { treePicker.launch(null) }, modifier = Modifier.fillMaxWidth()) { Text("Другая папка…") }
-                Hint("Анализируется только корень папки. Вложенные папки и файлы в них не трогаются.")
-            } else {
-                Card {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        SectionTitle("Выбранная папка")
-                        Text(state.treeLabel ?: "—")
-                        Button(onClick = vm::startScanSaf, modifier = Modifier.fillMaxWidth()) { Text("Анализировать") }
-                        OutlinedButton(onClick = { treePicker.launch(null) }, modifier = Modifier.fillMaxWidth()) { Text("Выбрать другую папку") }
-                    }
-                }
-                Hint("Корень «Загрузок» недоступен, выберите подпапку или включите полный режим.")
-                if (Access.allFilesSupported) {
-                    TextButton(onClick = vm::openAccess) { Text("Включить полный режим") }
-                }
-            }
-        }
-    }
-}
-
-@Composable
 private fun ScanScreen(vm: MainViewModel, state: UiState) {
     val s = state.stats
     ScreenScaffold("Анализ: ${state.rootLabel}", onBack = vm::back) { padding ->
