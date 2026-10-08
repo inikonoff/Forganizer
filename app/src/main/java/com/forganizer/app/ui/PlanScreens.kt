@@ -2,6 +2,9 @@ package com.forganizer.app.ui
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import android.widget.Toast
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -75,6 +78,7 @@ private sealed interface Dialog {
     data object Versions : Dialog
     data object Save : Dialog
     data object Dump : Dialog
+    data object Import : Dialog
     data class Rename(val folder: String) : Dialog
     data class Move(val title: String, val ids: Set<String>, val from: String) : Dialog
 }
@@ -103,6 +107,7 @@ fun PictureScreen(vm: MainViewModel, state: UiState) {
     val saveDumpJson = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) {
         ExportHelper.save(context, it, vm.dumpJson())
     }
+    val clipboard = LocalClipboardManager.current
     val checked = plan.checkedItems.size
     // Folders are collapsed by default; the list holds the keys of the open ones.
     var openKeys by rememberSaveable { mutableStateOf(emptyList<String>()) }
@@ -125,6 +130,15 @@ fun PictureScreen(vm: MainViewModel, state: UiState) {
                 HorizontalDivider()
                 DropdownMenuItem(text = { Text("Версии плана (${state.versions.size})") }, onClick = {
                     exportMenu = false; dialog = Dialog.Versions
+                })
+                HorizontalDivider()
+                DropdownMenuItem(text = { Text("Скопировать для нейросети") }, onClick = {
+                    exportMenu = false
+                    clipboard.setText(AnnotatedString(vm.handoffText()))
+                    Toast.makeText(context, "Скопировано: вставьте в чат с нейросетью", Toast.LENGTH_LONG).show()
+                })
+                DropdownMenuItem(text = { Text("Загрузить свою схему…") }, onClick = {
+                    exportMenu = false; dialog = Dialog.Import
                 })
                 HorizontalDivider()
                 DropdownMenuItem(text = { Text("Поделиться JSON") }, onClick = {
@@ -195,6 +209,10 @@ fun PictureScreen(vm: MainViewModel, state: UiState) {
     when (val d = dialog) {
         Dialog.Versions -> VersionsDialog(state.versions, onDismiss = { dialog = null }) { vm.rollback(it); dialog = null }
         Dialog.Save -> SaveDialog(state.rootLabel, onDismiss = { dialog = null }) { vm.saveScheme(it); dialog = null }
+        Dialog.Import -> ImportDialog(
+            readClipboard = { clipboard.getText()?.text.orEmpty() },
+            onDismiss = { dialog = null },
+        ) { if (vm.importScheme(it)) dialog = null }
         Dialog.Dump -> DumpDialog(
             onDismiss = { dialog = null },
             onSaveText = { dialog = null; saveDumpText.launch(vm.dumpFileName("txt")) },
@@ -691,6 +709,40 @@ private fun SaveDialog(default: String, onDismiss: () -> Unit, onSave: (String) 
             }
         },
         confirmButton = { TextButton(onClick = { onSave(name) }) { Text("Сохранить") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },
+    )
+}
+
+/** Paste or pick the JSON scheme returned by another model (same format as the export). */
+@Composable
+private fun ImportDialog(readClipboard: () -> String, onDismiss: () -> Unit, onLoad: (String) -> Unit) {
+    val context = LocalContext.current
+    var text by remember { mutableStateOf("") }
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val read = runCatching {
+            context.contentResolver.openInputStream(uri)?.use { it.readBytes().take(2_100_000).toByteArray().toString(Charsets.UTF_8) }
+        }.getOrNull()
+        if (read == null) Toast.makeText(context, "Не удалось прочитать файл", Toast.LENGTH_SHORT).show() else text = read
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Загрузить свою схему") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Hint("Вставьте JSON, который вернула нейросеть, или выберите файл. Формат тот же, что у экспорта. Состав файлов берётся из текущего сканирования, схема только выбирает папки.")
+                OutlinedTextField(
+                    value = text, onValueChange = { text = it },
+                    placeholder = { Text("{ \"plan\": [ … ] }") },
+                    minLines = 4, maxLines = 8, modifier = Modifier.fillMaxWidth(),
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = { text = readClipboard() }) { Text("Вставить", maxLines = 1) }
+                    OutlinedButton(onClick = { picker.launch(arrayOf("application/json", "text/plain", "*/*")) }) { Text("Файл…", maxLines = 1) }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = { onLoad(text) }, enabled = text.isNotBlank()) { Text("Загрузить") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },
     )
 }

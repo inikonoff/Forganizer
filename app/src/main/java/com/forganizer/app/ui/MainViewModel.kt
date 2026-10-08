@@ -32,17 +32,20 @@ import com.forganizer.core.FolderDump
 import com.forganizer.core.FileNode
 import com.forganizer.core.FileSource
 import com.forganizer.core.FolderNames
+import com.forganizer.core.ImportException
 import com.forganizer.core.MoveOp
 import com.forganizer.core.NameConflict
 import com.forganizer.core.NodeRef
 import com.forganizer.core.OrganizePlan
 import com.forganizer.core.PatchResult
 import com.forganizer.core.PlanExport
+import com.forganizer.core.PlanImport
 import com.forganizer.core.PlanSession
 import com.forganizer.core.PlanSnapshot
 import com.forganizer.core.PlanVersion
 import com.forganizer.core.ProtocolJson
 import com.forganizer.core.RefineLimitException
+import com.forganizer.core.RuPlural
 import com.forganizer.core.Staleness
 import com.forganizer.core.Text
 import com.forganizer.core.PlanItem
@@ -605,6 +608,33 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun exportJson(): String = _state.value.plan?.let { PlanExport.toJson(_state.value.rootLabel, it) } ?: "{}"
+    /** Instruction for a chat model plus the exported scheme, ready to paste or share. */
+    fun handoffText(): String = PlanImport.handoff(exportJson())
+
+    /** Loads a scheme made elsewhere as a new version of the plan (the previous one stays in "Версии плана"). */
+    fun importScheme(text: String): Boolean {
+        val s = session ?: return false
+        return try {
+            val r = PlanImport.parse(text, s.plan, s.allowExisting)
+            s.importPlan(r)
+            persistVersion(s.versions.last(), "import")
+            persistPins()
+            publish()
+            val msg = buildString {
+                append("Загружено: ${r.placed} ${RuPlural.form(r.placed, "файл", "файла", "файлов")} в ${r.plan.folders.size} ${RuPlural.form(r.plan.folders.size, "папку", "папки", "папок")}.")
+                if (r.notMentioned > 0) append("\nНет в схеме: ${r.notMentioned}, они оставлены на месте.")
+                if (r.rejected.isNotEmpty()) append("\nНедопустимая папка, оставлены на месте: ${r.rejected.take(5).joinToString(", ")}" + if (r.rejected.size > 5) " и ещё ${r.rejected.size - 5}" else "")
+                if (r.unknown.isNotEmpty()) append("\nНе найдены в этой папке: ${r.unknown.take(5).joinToString(", ")}" + if (r.unknown.size > 5) " и ещё ${r.unknown.size - 5}" else "")
+                append("\nПрежний план доступен в «Версиях плана».")
+            }
+            _state.update { it.copy(message = msg) }
+            true
+        } catch (e: ImportException) {
+            _state.update { it.copy(message = e.message) }
+            false
+        }
+    }
+
     fun exportText(): String = _state.value.plan?.let { PlanExport.toText(_state.value.rootLabel, it) } ?: ""
 
     // --- preview & apply ------------------------------------------------------------------------

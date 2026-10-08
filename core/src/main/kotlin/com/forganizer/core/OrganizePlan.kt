@@ -74,7 +74,7 @@ data class OrganizePlan(
         const val DEFAULT_CHECK_THRESHOLD = 0.7
 
         /** A nested file that already lies directly in the folder the plan would move it to. */
-        private fun alreadyThere(file: FileNode, folder: String) =
+        internal fun alreadyThere(file: FileNode, folder: String) =
             file.rel.isNotEmpty() && FolderNames.key(file.rel) == FolderNames.key(folder)
 
         fun build(

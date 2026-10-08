@@ -126,6 +126,13 @@ class PlanSession(
         return true
     }
 
+    /** Takes a scheme loaded from outside as a new version; nothing is pinned, the previous plan stays in versions. */
+    fun importPlan(result: ImportResult, label: String = "Загруженная схема") {
+        plan = result.plan
+        pins = Pins()
+        versions = versions + PlanVersion(versions.last().number + 1, label, plan, now())
+    }
+
     /** Replaces the plan without history (e.g. stale marks after reopening). */
     fun replacePlan(p: OrganizePlan) {
         plan = p
