@@ -6,7 +6,15 @@ import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CardDefaults
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -52,7 +60,13 @@ fun App(vm: MainViewModel) {
         Screen.CONSENT -> ConsentScreen(vm)
         Screen.ACCESS -> AccessScreen(vm, state)
         Screen.FOLDER -> FolderScreen(vm, state)
-        Screen.SCAN -> ScanScreen(vm, state)
+        Screen.SCAN -> {
+            // The folder screen stays visible, blurred, under the progress card.
+            Box(Modifier.fillMaxSize()) {
+                Box(Modifier.fillMaxSize().blur(12.dp)) { FolderScreen(vm, state) }
+                ScanOverlay(vm, state)
+            }
+        }
         Screen.PICTURE -> PictureScreen(vm, state)
         Screen.REFINE_DIFF -> RefineDiffScreen(vm, state)
         Screen.SAVED -> SavedScreen(vm, state)
@@ -148,54 +162,57 @@ private fun AccessScreen(vm: MainViewModel, state: UiState) {
     }
 }
 
+/** Progress card over the blurred folder screen: no dead-end screen, the folder stays in sight. */
 @Composable
-private fun ScanScreen(vm: MainViewModel, state: UiState) {
+private fun ScanOverlay(vm: MainViewModel, state: UiState) {
     val s = state.stats
-    ScreenScaffold("Анализ: ${state.rootLabel}", onBack = vm::back) { padding ->
-        Column(
-            Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.35f))
+            .pointerInput(Unit) { detectTapGestures { } }, // swallows touches: the screen below is inert
+        contentAlignment = Alignment.Center,
+    ) {
+        Card(
+            modifier = Modifier.padding(24.dp).fillMaxWidth(),
+            shape = RoundedCornerShape(28.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
         ) {
-            if (state.scanError == null) {
-                Text(s.stage, style = MaterialTheme.typography.titleMedium)
-                if (s.aiTotal > 0) {
-                    LinearProgressIndicator(progress = { s.aiDone.toFloat() / s.aiTotal }, modifier = Modifier.fillMaxWidth())
-                    Hint("Запросов к ИИ: ${s.aiDone} из ${s.aiTotal}. Бесплатный сервер может просыпаться до минуты.")
-                } else {
-                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Text("🔍 Анализ: ${state.rootLabel}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 2)
+                if (state.scanError == null) {
+                    if (s.aiTotal > 0) {
+                        val p = s.aiDone.toFloat() / s.aiTotal
+                        LinearProgressIndicator(progress = { p }, modifier = Modifier.fillMaxWidth())
+                        Text(s.stage + "  " + (p * 100).toInt() + "%", style = MaterialTheme.typography.bodyMedium)
+                        Hint("Запросов к ИИ: ${s.aiDone} из ${s.aiTotal}. Бесплатный сервер может просыпаться до минуты.")
+                    } else {
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                        Text(s.stage + "…", style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+                val line = buildList {
+                    add("📄 Файлов: ${s.files}")
+                    if (s.clusters > 0) add("🗂 Кластеров: ${s.clusters}")
+                    if (s.archives > 0) add("📦 Архивов: ${s.archives}")
+                    if (s.duplicates > 0) add("👯 Дублей: ${s.duplicates}")
+                    if (s.projects > 0) add("🧩 Проектов: ${s.projects}")
+                    if (s.skipped > 0) add("⛔ Недоступно: ${s.skipped}")
+                }
+                Text(line.joinToString("  ·  "), style = MaterialTheme.typography.bodyMedium)
+                state.scanError?.let { err ->
+                    Text(err, color = MaterialTheme.colorScheme.error)
+                    Hint("Локальная сводка сохранена.")
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        Button(onClick = vm::retryAi, modifier = Modifier.weight(1f)) { Text("Повторить", maxLines = 1) }
+                        OutlinedButton(onClick = vm::withoutAi, modifier = Modifier.weight(1f)) { Text("Без ИИ", maxLines = 1) }
+                    }
+                }
+                OutlinedButton(onClick = vm::back, modifier = Modifier.fillMaxWidth()) {
+                    Text(if (state.scanError == null) "Отмена" else "Закрыть")
                 }
             }
-            Card {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    StatRow("Файлов", s.files)
-                    StatRow("Кластеров", s.clusters)
-                    if (s.archives > 0) StatRow("Архивов просмотрено", s.archives)
-                    StatRow("Возможных дублей", s.duplicates)
-                    if (s.projects > 0) StatRow("Папок-проектов оставлено", s.projects)
-                    if (s.skipped > 0) StatRow("Недоступно (пропущено)", s.skipped)
-                }
-            }
-            state.scanError?.let { err ->
-                Text(err, color = MaterialTheme.colorScheme.error)
-                Hint("Локальная сводка сохранена.")
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = vm::retryAi) { Text("Повторить") }
-                    OutlinedButton(onClick = vm::withoutAi) { Text("Показать без ИИ") }
-                }
-            }
-            Spacer(Modifier.height(8.dp))
         }
     }
 }
 
-@Composable
-private fun StatRow(label: String, value: Int) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-        Text(label)
-        Text(value.toString(), style = MaterialTheme.typography.titleSmall)
-    }
-}
