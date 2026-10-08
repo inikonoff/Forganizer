@@ -93,7 +93,7 @@ fun ConfidenceBadge(confidence: Double) {
 fun Hint(
     text: String,
     modifier: Modifier = Modifier,
-    color: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    color: Color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f),
     maxLines: Int = Int.MAX_VALUE,
 ) {
     Text(

@@ -12,6 +12,7 @@ import com.forganizer.app.data.PlanVersionEntity
 import com.forganizer.app.data.SavedPlanEntity
 import com.forganizer.app.data.SavedPlanInfo
 import com.forganizer.app.data.SessionSummary
+import com.forganizer.app.data.SettingsStore
 import com.forganizer.app.fs.Access
 import com.forganizer.app.fs.FileBackend
 import com.forganizer.app.fs.SafBackend
@@ -677,6 +678,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // --- settings -------------------------------------------------------------------------------
 
     fun updateSettings(f: (AppSettings) -> AppSettings) = viewModelScope.launch { app.settings.update(f) }
+
+    /** Autosave of the text settings; writes only when something really changed. */
+    fun saveDraft(exts: String, dirs: String, days: String, server: String) {
+        val cur = _state.value.settings
+        val newExts = SettingsStore.splitList(exts)
+        val newDirs = SettingsStore.splitList(dirs)
+        val newDays = days.toIntOrNull()?.coerceIn(1, 3650) ?: cur.oldDays
+        val newServer = server.trim()
+        app.serverUrlOverride = newServer // takes effect at once, e.g. for "Проверить"
+        if (newExts == cur.ignoreExtensions && newDirs == cur.ignoreFolders && newDays == cur.oldDays && newServer == cur.serverUrl) return
+        updateSettings { it.copy(ignoreExtensions = newExts, ignoreFolders = newDirs, oldDays = newDays, serverUrl = newServer) }
+    }
 
     fun checkServer() {
         _state.update { it.copy(message = "Проверяю соединение…") }
