@@ -134,7 +134,7 @@ class Clusterer(
         val singles = rest.filter { it.id !in used }.map { f ->
             n++
             val id = "f$n"
-            SummaryObject.Single(id, FileDto(id, f.name, (f.size + 1023) / 1024, date(f.modified), peeks[f.id].orEmpty()), f)
+            SummaryObject.Single(id, FileDto(id, f.name, (f.size + 1023) / 1024, date(f.modified), peeks[f.id].orEmpty(), f.rel), f)
         }
         objects += singles
         return Summary(objects, local, bundleCandidates(singles))

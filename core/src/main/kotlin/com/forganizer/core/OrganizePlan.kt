@@ -73,6 +73,10 @@ data class OrganizePlan(
     companion object {
         const val DEFAULT_CHECK_THRESHOLD = 0.7
 
+        /** A nested file that already lies directly in the folder the plan would move it to. */
+        private fun alreadyThere(file: FileNode, folder: String) =
+            file.rel.isNotEmpty() && FolderNames.key(file.rel) == FolderNames.key(folder)
+
         fun build(
             summary: Summary,
             ai: ValidatedPlan,
@@ -92,6 +96,7 @@ data class OrganizePlan(
                 }
                 val name = ex ?: l.folder
                 folders.putIfAbsent(FolderNames.key(name), PlanFolder(name, if (ex != null) "" else "Определено по расширению", existing = ex != null))
+                if (alreadyThere(l.file, name)) return@forEachIndexed
                 items += PlanItem(l.file, ref, name, null, l.reason, 1.0, ItemSource.LOCAL, checked = true)
             }
             ai.folders.forEach { folders.putIfAbsent(FolderNames.key(it.name), it) }
@@ -99,6 +104,7 @@ data class OrganizePlan(
                 val obj = summary.byId[a.ref] ?: continue
                 val folder = folders[FolderNames.key(a.folder)]?.name ?: a.folder
                 obj.members.forEach {
+                    if (alreadyThere(it, folder)) return@forEach
                     items += PlanItem(it, a.ref, folder, a.bundle, a.reason, a.confidence, ItemSource.AI, a.confidence >= DEFAULT_CHECK_THRESHOLD)
                 }
             }

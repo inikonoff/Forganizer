@@ -80,6 +80,7 @@ data class ScanStats(
     val duplicates: Int = 0,
     val skipped: Int = 0,
     val archives: Int = 0,
+    val projects: Int = 0,
     val aiDone: Int = 0,
     val aiTotal: Int = 0,
 )
@@ -138,6 +139,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var root: NodeRef? = null
     private var scan: ScanResult? = null
     private var scanTime: Long = 0
+    private var scanNote: String? = null
     private var summary: Summary? = null
     private var session: PlanSession? = null
     private var planId: String = UUID.randomUUID().toString()
@@ -297,10 +299,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 val s = app.settings.current()
                 val result = withContext(Dispatchers.IO) {
-                    Scanner(src).scan(rootRef, ScanSettings(s.ignoreExtensions.toSet(), s.ignoreFolders.toSet()))
+                    Scanner(src).scan(rootRef, ScanSettings(s.ignoreExtensions.toSet(), s.ignoreFolders.toSet(), depth = if (s.includeSubfolders) 3 else 0))
                 }
                 scan = result
                 scanTime = System.currentTimeMillis()
+                scanNote = if (result.truncated) "Папка очень большая: прочитаны не все вложенные папки (лимит ${5000} файлов)." else null
+                stats { it.copy(projects = result.projectFolders.size) }
                 val peeks = if (s.peekArchives) {
                     stats { it.copy(stage = "Заглядываю в архивы", files = result.files.size, skipped = result.skipped) }
                     withContext(Dispatchers.IO) {
@@ -379,7 +383,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _state.update {
             it.copy(
                 screen = Screen.PICTURE, scanError = null, fromSaved = false, refine = RefineState(),
-                aiNote = if (aiEmpty) "Не нашлось уверенных рекомендаций" else extraNote,
+                aiNote = (if (aiEmpty) "Не нашлось уверенных рекомендаций" else extraNote).let { a -> listOfNotNull(a, scanNote).joinToString("\n").ifEmpty { null } },
             )
         }
         publish()

@@ -128,13 +128,17 @@ class Applier(
                     }
                     name = Conflicts.uniqueName(name, taken)
                 }
+                val srcDir = if (op.file.dir.isEmpty()) root else NodeRef(op.file.dir)
+                if (srcDir.id == target.id) {
+                    skipped += OpError(op.file.name, "Файл уже лежит в этой папке"); return@forEachIndexed
+                }
                 val pending = JournalRecord(
-                    session = session, kind = JournalKind.MOVE, rootId = root.id, srcDir = root.id,
+                    session = session, kind = JournalKind.MOVE, rootId = root.id, srcDir = srcDir.id,
                     srcId = op.file.id, srcName = op.file.name, dstDir = target.id, dstId = null, dstName = name,
                     size = op.file.size, status = JournalStatus.PENDING, time = now(),
                 )
                 val id = journal.insert(pending)
-                when (val r = source.move(current, root, target, name)) {
+                when (val r = source.move(current, srcDir, target, name)) {
                     is MoveResult.Moved -> {
                         taken += r.node.name.lowercase()
                         journal.update(pending.copy(id = id, dstId = r.node.id, dstName = r.node.name, status = JournalStatus.DONE, time = now()))

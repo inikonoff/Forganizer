@@ -14,6 +14,7 @@ class ClusterIn(BaseModel):
     dates: list[str] = Field(default=[], max_length=4)
     samples: list[str] = Field(default=[], max_length=3)
     inside: str = Field(default="", max_length=400)
+    dir: str = Field(default="", max_length=200)
 
 
 class FileIn(BaseModel):

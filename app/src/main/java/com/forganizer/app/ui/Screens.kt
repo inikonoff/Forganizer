@@ -175,6 +175,7 @@ private fun ScanScreen(vm: MainViewModel, state: UiState) {
                     StatRow("Кластеров", s.clusters)
                     if (s.archives > 0) StatRow("Архивов просмотрено", s.archives)
                     StatRow("Возможных дублей", s.duplicates)
+                    if (s.projects > 0) StatRow("Папок-проектов оставлено", s.projects)
                     if (s.skipped > 0) StatRow("Недоступно (пропущено)", s.skipped)
                 }
             }

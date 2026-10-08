@@ -14,6 +14,10 @@ data class FileNode(
     val modified: Long,
     val mime: String?,
     val isDir: Boolean,
+    /** Id of the directory that holds the node when it is not the scanned root; empty for root entries. */
+    val dir: String = "",
+    /** Folder path relative to the scanned root ("Проект/img"); empty for root entries. */
+    val rel: String = "",
 ) {
     val ref: NodeRef get() = NodeRef(id)
 }

@@ -24,6 +24,8 @@ data class FileDto(
     val date: String,
     /** Summary of names inside a zip archive (empty if not an archive or not peeked). */
     val inside: String = "",
+    /** Folder the file was found in, relative to the scanned root (empty for root files). */
+    val dir: String = "",
 )
 
 @Serializable

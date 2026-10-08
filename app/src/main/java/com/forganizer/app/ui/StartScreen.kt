@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Switch
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -69,7 +70,8 @@ fun FolderScreen(vm: MainViewModel, state: UiState) {
             Text("Какую папку разобрать?", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
             if (state.mode == Mode.FULL) {
                 FullModeFolders(vm) { treePicker.launch(null) }
-                InfoPlate("Анализируется только корень папки. Вложенные папки и файлы в них не затрагиваются.")
+                SubfoldersSwitch(state.settings.includeSubfolders) { v -> vm.updateSettings { it.copy(includeSubfolders = v) } }
+                InfoPlate(rootInfo(state.settings.includeSubfolders))
             } else {
                 SavedFolderCard(state.treeLabel, onAnalyze = vm::startScanSaf)
                 PickerRow("Выбрать другую папку…") { treePicker.launch(null) }
@@ -78,6 +80,7 @@ fun FolderScreen(vm: MainViewModel, state: UiState) {
                         ChevronRow("🔓", "Включить полный режим", "Доступ к корню «Загрузок» и других папок", vm::openAccess)
                     }
                 }
+                SubfoldersSwitch(state.settings.includeSubfolders) { v -> vm.updateSettings { it.copy(includeSubfolders = v) } }
                 InfoPlate("Корень «Загрузок» в этом режиме недоступен: выберите подпапку или включите полный режим.")
             }
         }
@@ -218,5 +221,26 @@ private fun InfoPlate(text: String) {
         Text("ℹ️")
         Spacer(Modifier.width(10.dp))
         Text(text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSecondaryContainer)
+    }
+}
+
+private fun rootInfo(deep: Boolean) =
+    if (deep) "Файлы из вложенных папок (до 3 уровней) тоже попадут в план. Папки проектов (.git, build.gradle, package.json…) остаются нетронутыми, пустые папки не удаляются."
+    else "Анализируется только корень папки. Вложенные папки и файлы в них не затрагиваются."
+
+/** Opt-in: include files from nested folders (off by default). */
+@Composable
+private fun SubfoldersSwitch(checked: Boolean, onChange: (Boolean) -> Unit) {
+    Card(shape = TileShape, colors = tileColors()) {
+        Row(
+            Modifier.fillMaxWidth().clickable { onChange(!checked) }.padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f).padding(end = 12.dp)) {
+                Text("Включать вложенные папки", style = MaterialTheme.typography.bodyLarge)
+                Hint("Файлы из подпапок до 3 уровней, кроме проектов")
+            }
+            Switch(checked = checked, onCheckedChange = onChange)
+        }
     }
 }

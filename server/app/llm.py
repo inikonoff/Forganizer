@@ -104,6 +104,9 @@ class Planner:
         for item in data["files"] + data["clusters"]:
             if not item.get("inside"):
                 item.pop("inside", None)  # keep the prompt small: only archives carry a summary
+        for item in data["files"]:
+            if not item.get("dir"):
+                item.pop("dir", None)
         user = json.dumps(data, ensure_ascii=False)
         return await self._run(SYSTEM_PROMPT, user, lambda text: parse_answer(text, req.phase))
 

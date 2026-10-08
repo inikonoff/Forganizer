@@ -376,6 +376,7 @@ private fun FileRow(item: PlanItem, onCheck: (Set<String>, Boolean) -> Unit, mod
         Column(Modifier.weight(1f)) {
             Text(item.file.name, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
             if (item.stale != null) Hint("Устарело: ${item.stale}", color = MaterialTheme.colorScheme.error)
+            else if (item.file.rel.isNotEmpty()) Hint("из: ${item.file.rel}/" + if (item.reason.isNotEmpty()) " · ${item.reason}" else "", maxLines = 2)
             else if (item.reason.isNotEmpty()) Hint(item.reason, maxLines = 1)
         }
         ConfidenceBadge(item.confidence)
@@ -416,7 +417,7 @@ private fun LazyListScope.leaveBlock(state: UiState, expanded: Boolean, onToggle
                     leave.take(300).forEach { l ->
                         Column {
                             Text(l.file.name, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                            Hint(l.reason)
+                            Hint((if (l.file.rel.isNotEmpty()) "из: ${l.file.rel}/ · " else "") + l.reason)
                         }
                     }
                     if (leave.size > 300) Hint("…и ещё ${leave.size - 300}")
@@ -569,7 +570,7 @@ fun PreviewScreen(vm: MainViewModel, state: UiState) {
             items(p.rows, key = { it.item.file.id }) { row ->
                 Column {
                     Text(row.item.file.name, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    Hint("→ ${row.item.folder}/" + (row.finalName?.takeIf { it != row.item.file.name } ?: if (row.finalName == null) " (пропуск)" else ""))
+                    Hint((if (row.item.file.rel.isNotEmpty()) "${row.item.file.rel}/ " else "") + "→ ${row.item.folder}/" + (row.finalName?.takeIf { it != row.item.file.name } ?: if (row.finalName == null) " (пропуск)" else ""))
                 }
             }
         }
