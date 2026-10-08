@@ -178,7 +178,7 @@ private fun ScanOverlay(vm: MainViewModel, state: UiState) {
             shape = RoundedCornerShape(28.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
         ) {
-            Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 Text("🔍 Анализ: ${state.rootLabel}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 2)
                 if (state.scanError == null) {
                     if (s.aiTotal > 0) {
@@ -191,15 +191,28 @@ private fun ScanOverlay(vm: MainViewModel, state: UiState) {
                         Text(s.stage + "…", style = MaterialTheme.typography.bodyMedium)
                     }
                 }
-                val line = buildList {
-                    add("📄 Файлов: ${s.files}")
-                    if (s.clusters > 0) add("🗂 Кластеров: ${s.clusters}")
-                    if (s.archives > 0) add("📦 Архивов: ${s.archives}")
-                    if (s.duplicates > 0) add("👯 Дублей: ${s.duplicates}")
-                    if (s.projects > 0) add("🧩 Проектов: ${s.projects}")
-                    if (s.skipped > 0) add("⛔ Недоступно: ${s.skipped}")
+                val rows = buildList {
+                    add("📄  Файлов" to s.files)
+                    if (s.clusters > 0) add("🗂  Кластеров" to s.clusters)
+                    if (s.archives > 0) add("📦  Архивов просмотрено" to s.archives)
+                    if (s.duplicates > 0) add("👯  Возможных дублей" to s.duplicates)
+                    if (s.projects > 0) add("🧩  Проектов оставлено" to s.projects)
+                    if (s.skipped > 0) add("⛔  Недоступно" to s.skipped)
                 }
-                Text(line.joinToString("  ·  "), style = MaterialTheme.typography.bodyMedium)
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.surfaceContainerHighest, RoundedCornerShape(16.dp))
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    rows.forEach { (label, value) ->
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Text(label, style = MaterialTheme.typography.bodyMedium)
+                            Text(value.toString(), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                }
                 state.scanError?.let { err ->
                     Text(err, color = MaterialTheme.colorScheme.error)
                     Hint("Локальная сводка сохранена.")
@@ -208,6 +221,7 @@ private fun ScanOverlay(vm: MainViewModel, state: UiState) {
                         OutlinedButton(onClick = vm::withoutAi, modifier = Modifier.weight(1f)) { Text("Без ИИ", maxLines = 1) }
                     }
                 }
+                Spacer(Modifier.height(2.dp))
                 OutlinedButton(onClick = vm::back, modifier = Modifier.fillMaxWidth()) {
                     Text(if (state.scanError == null) "Отмена" else "Закрыть")
                 }
