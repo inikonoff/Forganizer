@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: forganizer-api
+    name: forganizer
     runtime: python
     rootDir: server
     plan: free
