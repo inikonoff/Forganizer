@@ -21,7 +21,7 @@ Workflow `.github/workflows/android.yml` на каждый push в `main` про
 
 | Имя | Тип | Назначение |
 |---|---|---|
-| `SERVER_URL` | variable | Адрес сервера, например `https://forganizer-api.onrender.com` |
+| `SERVER_URL` | variable | Адрес сервера, например `https://forganizer.onrender.com` |
 | `APP_TOKEN` | secret | Тот же токен, что `APP_TOKEN` на сервере |
 | `KEYSTORE_BASE64` | secret | Release-keystore в base64 (`base64 -w0 release.jks`) |
 | `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD` | secret | Параметры keystore |

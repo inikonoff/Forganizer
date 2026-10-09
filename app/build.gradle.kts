@@ -21,7 +21,7 @@ android {
         targetSdk = 35
         versionCode = secret("VERSION_CODE").toIntOrNull() ?: 1
         versionName = secret("VERSION_NAME").ifEmpty { "0.1.0" }
-        val serverUrl = secret("SERVER_URL").ifEmpty { "https://forganizer-api.onrender.com" }
+        val serverUrl = secret("SERVER_URL").ifEmpty { "https://forganizer.onrender.com" }
         buildConfigField("String", "SERVER_URL", "\"$serverUrl\"")
         buildConfigField("String", "APP_TOKEN", "\"${secret("APP_TOKEN")}\"")
     }
