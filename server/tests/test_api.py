@@ -205,5 +205,5 @@ def test_prompt_has_category_hints():
 def test_folder_language_is_accepted_and_validated():
     c = client([GOOD, GOOD])
     assert post(c, dict(REQ, folder_language="en")).status_code == 200
-    assert post(c, dict(REQ, folder_language="de")).status_code == 422
+    assert post(c, dict(REQ, folder_language="de")).status_code == 400
     assert post(c).status_code == 200  # defaults to ru
