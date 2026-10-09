@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -34,6 +34,7 @@ class PlanRequest(BaseModel):
     taxonomy: Optional[list[str]] = None
     clusters: list[ClusterIn] = Field(default=[], max_length=2000)
     files: list[FileIn] = Field(default=[], max_length=500)
+    folder_language: Literal["ru", "en"] = "ru"
 
     @field_validator("phase")
     @classmethod
@@ -117,6 +118,7 @@ class RefineRequest(BaseModel):
     leave: LeaveSummary = LeaveSummary()
     pinned: list[Pinned] = Field(default=[], max_length=MAX_PINNED)
     history: list[str] = Field(default=[], max_length=3)
+    folder_language: Literal["ru", "en"] = "ru"
 
     @field_validator("instruction")
     @classmethod

@@ -14,7 +14,15 @@ data class RulesConfig(
     /** Types resolved locally without AI: type -> folder name. */
     @SerialName("local_folders") val localFolders: Map<String, String> = emptyMap(),
     @SerialName("old_local_folders") val oldLocalFolders: Map<String, String> = emptyMap(),
-)
+    @SerialName("local_folders_en") val localFoldersEn: Map<String, String> = emptyMap(),
+    @SerialName("old_local_folders_en") val oldLocalFoldersEn: Map<String, String> = emptyMap(),
+) {
+    fun localFolder(type: String, lang: FolderLanguage): String? =
+        (if (lang == FolderLanguage.EN) localFoldersEn[type] else null) ?: localFolders[type]
+
+    fun oldLocalFolder(type: String, lang: FolderLanguage): String? =
+        (if (lang == FolderLanguage.EN) oldLocalFoldersEn[type] else null) ?: oldLocalFolders[type]
+}
 
 class Rules(val config: RulesConfig) {
     private val extToType: Map<String, String> = buildMap {
@@ -40,6 +48,8 @@ class Rules(val config: RulesConfig) {
                 ignoreExtensions = listOf("nomedia", "tmp", "crdownload"),
                 localFolders = mapOf("apk" to "Установщики"),
                 oldLocalFolders = mapOf("apk" to "Старые установщики"),
+                localFoldersEn = mapOf("apk" to "Installers"),
+                oldLocalFoldersEn = mapOf("apk" to "Old installers"),
             )
         )
     }

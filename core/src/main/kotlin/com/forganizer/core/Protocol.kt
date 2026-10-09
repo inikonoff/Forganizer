@@ -36,6 +36,8 @@ data class PlanRequest(
     val taxonomy: List<String>? = null,
     val clusters: List<ClusterDto>,
     val files: List<FileDto>,
+    /** "ru" or "en": the language of new folder names. */
+    @SerialName("folder_language") val folderLanguage: String = "ru",
 ) {
     fun ids(): Set<String> = (clusters.map { it.id } + files.map { it.id }).toSet()
 }
@@ -109,6 +111,7 @@ data class RefineRequest(
     val leave: LeaveSummaryDto,
     val pinned: List<PinDto>,
     val history: List<String>,
+    @SerialName("folder_language") val folderLanguage: String = "ru",
 )
 
 /** Raw patch as returned by the server; every op is re-checked on the device. */

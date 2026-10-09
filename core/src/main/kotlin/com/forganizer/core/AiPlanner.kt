@@ -22,6 +22,7 @@ class AiPlanner(
         summary: Summary,
         existingFolders: List<String>,
         allowExisting: Boolean,
+        language: FolderLanguage = FolderLanguage.RU,
         onProgress: (done: Int, total: Int) -> Unit = { _, _ -> },
     ): PlannerResult {
         val validator = PlanValidator(existingFolders, allowExisting)
@@ -30,7 +31,7 @@ class AiPlanner(
 
         if (objects.size <= singlePassLimit) {
             onProgress(0, 1)
-            val req = request(0, objects, existingFolders, allowExisting, null)
+            val req = request(0, objects, existingFolders, allowExisting, null, language)
             val plan = validator.validate(req, api.plan(req))
             onProgress(1, 1)
             return PlannerResult(plan.folders.filter { !it.existing }, plan)
@@ -40,7 +41,7 @@ class AiPlanner(
         val total = batches.size + 1
         onProgress(0, total)
         val phase1Objects = summary.clusters + summary.singles.take(taxonomySample)
-        val req1 = request(1, phase1Objects, existingFolders, allowExisting, null)
+        val req1 = request(1, phase1Objects, existingFolders, allowExisting, null, language)
         val taxonomy = validator.validateTaxonomy(api.plan(req1))
         onProgress(1, total)
 
@@ -52,7 +53,7 @@ class AiPlanner(
         var lastError: AiUnavailableException? = null
         batches.forEachIndexed { i, batch ->
             try {
-                val req = request(2, batch, existingFolders, allowExisting, current.map { it.name })
+                val req = request(2, batch, existingFolders, allowExisting, current.map { it.name }, language)
                 val p = validator.validate(req, api.plan(req), current)
                 p.folders.forEach { folders.putIfAbsent(FolderNames.key(it.name), it) }
                 // New folders proposed in a batch extend the taxonomy for the next batches.
@@ -110,6 +111,7 @@ class AiPlanner(
         existing: List<String>,
         allowExisting: Boolean,
         taxonomy: List<String>?,
+        language: FolderLanguage,
     ) = PlanRequest(
         phase = phase,
         existingFolders = existing,
@@ -117,5 +119,6 @@ class AiPlanner(
         taxonomy = taxonomy,
         clusters = objects.filterIsInstance<SummaryObject.Cluster>().map { it.dto },
         files = objects.filterIsInstance<SummaryObject.Single>().map { it.dto },
+        folderLanguage = language.code,
     )
 }

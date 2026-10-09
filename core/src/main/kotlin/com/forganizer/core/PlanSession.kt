@@ -36,6 +36,7 @@ class PlanSession(
     initial: OrganizePlan,
     val allowExisting: Boolean,
     val maxRefines: Int = MAX_REFINES,
+    var folderLanguage: FolderLanguage = FolderLanguage.RU,
     private val now: () -> Long = System::currentTimeMillis,
 ) {
     var plan: OrganizePlan = initial
@@ -94,6 +95,7 @@ class PlanSession(
             leave = LeaveSummaryDto(plan.leave.size, plan.leave.groupingBy { extension(it.file.name).ifEmpty { "-" } }.eachCount()),
             pinned = pins.toDto(plan),
             history = history.takeLast(3),
+            folderLanguage = folderLanguage.code,
         )
     }
 

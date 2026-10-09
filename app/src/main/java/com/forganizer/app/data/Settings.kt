@@ -8,6 +8,7 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.forganizer.core.ConflictMode
+import com.forganizer.core.FolderLanguage
 import com.forganizer.core.Rules
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -21,6 +22,7 @@ data class AppSettings(
     val allowExisting: Boolean = false,
     val peekArchives: Boolean = true,
     val includeSubfolders: Boolean = false,
+    val folderLanguage: FolderLanguage = FolderLanguage.RU,
     val ignoreExtensions: List<String> = emptyList(),
     val ignoreFolders: List<String> = emptyList(),
     val oldDays: Int = 90,
@@ -35,6 +37,7 @@ class SettingsStore(private val context: Context, private val rules: Rules) {
         val allowExisting = booleanPreferencesKey("allow_existing")
         val peekArchives = booleanPreferencesKey("peek_archives")
         val includeSubfolders = booleanPreferencesKey("include_subfolders")
+        val folderLanguage = stringPreferencesKey("folder_language")
         val ignoreExt = stringPreferencesKey("ignore_extensions")
         val ignoreDirs = stringPreferencesKey("ignore_folders")
         val oldDays = intPreferencesKey("old_days")
@@ -52,6 +55,7 @@ class SettingsStore(private val context: Context, private val rules: Rules) {
         allowExisting = p[K.allowExisting] ?: false,
         peekArchives = p[K.peekArchives] ?: true,
         includeSubfolders = p[K.includeSubfolders] ?: false,
+        folderLanguage = FolderLanguage.fromCode(p[K.folderLanguage]),
         ignoreExtensions = p[K.ignoreExt]?.let(::splitList) ?: rules.config.ignoreExtensions,
         ignoreFolders = p[K.ignoreDirs]?.let(::splitList) ?: rules.config.ignoreFolders,
         oldDays = p[K.oldDays] ?: rules.config.oldFilesDays,
@@ -67,6 +71,7 @@ class SettingsStore(private val context: Context, private val rules: Rules) {
             p[K.allowExisting] = s.allowExisting
             p[K.peekArchives] = s.peekArchives
             p[K.includeSubfolders] = s.includeSubfolders
+            p[K.folderLanguage] = s.folderLanguage.code
             p[K.ignoreExt] = s.ignoreExtensions.joinToString(",")
             p[K.ignoreDirs] = s.ignoreFolders.joinToString(",")
             p[K.oldDays] = s.oldDays

@@ -33,6 +33,7 @@ class Clusterer(
     private val rules: Rules,
     private val zone: ZoneId = ZoneId.systemDefault(),
     private val now: Long = System.currentTimeMillis(),
+    private val language: FolderLanguage = FolderLanguage.RU,
 ) {
     private val dateFmt = DateTimeFormatter.ofPattern("yyyy-MM-dd")
 
@@ -47,9 +48,9 @@ class Clusterer(
         val oldThreshold = now - oldDays.toLong() * 24 * 3600 * 1000
         for (f in files) {
             val type = rules.typeOf(f.name)
-            val folder = rules.config.localFolders[type]
+            val folder = rules.config.localFolder(type, language)
             if (folder != null) {
-                val oldFolder = rules.config.oldLocalFolders[type]
+                val oldFolder = rules.config.oldLocalFolder(type, language)
                 if (oldFolder != null && f.modified in 1 until oldThreshold) {
                     local += LocalAssignment(f, oldFolder, "Установщик старше $oldDays дней")
                 } else {

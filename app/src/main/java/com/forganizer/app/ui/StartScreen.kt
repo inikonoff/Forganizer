@@ -5,6 +5,11 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import com.forganizer.core.FolderLanguage
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -70,7 +75,7 @@ fun FolderScreen(vm: MainViewModel, state: UiState) {
             Text("Какую папку разобрать?", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
             if (state.mode == Mode.FULL) {
                 FullModeFolders(vm) { treePicker.launch(null) }
-                SubfoldersSwitch(state.settings.includeSubfolders) { v -> vm.updateSettings { it.copy(includeSubfolders = v) } }
+                SortOptions(state.settings.includeSubfolders, state.settings.folderLanguage, vm)
                 InfoPlate(rootInfo(state.settings.includeSubfolders))
             } else {
                 SavedFolderCard(state.treeLabel, onAnalyze = vm::startScanSaf)
@@ -80,7 +85,7 @@ fun FolderScreen(vm: MainViewModel, state: UiState) {
                         ChevronRow("🔓", "Включить полный режим", "Доступ к корню «Загрузок» и других папок", vm::openAccess)
                     }
                 }
-                SubfoldersSwitch(state.settings.includeSubfolders) { v -> vm.updateSettings { it.copy(includeSubfolders = v) } }
+                SortOptions(state.settings.includeSubfolders, state.settings.folderLanguage, vm)
                 InfoPlate("Корень «Загрузок» в этом режиме недоступен: выберите подпапку или включите полный режим.")
             }
         }
@@ -241,6 +246,29 @@ private fun SubfoldersSwitch(checked: Boolean, onChange: (Boolean) -> Unit) {
                 Hint("Файлы из подпапок до 3 уровней, кроме проектов")
             }
             Switch(checked = checked, onCheckedChange = onChange)
+        }
+    }
+}
+
+/** Options chosen before sorting: nested folders and the language of folder names. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SortOptions(includeSubfolders: Boolean, language: FolderLanguage, vm: MainViewModel) {
+    SubfoldersSwitch(includeSubfolders) { v -> vm.updateSettings { it.copy(includeSubfolders = v) } }
+    Card(shape = TileShape, colors = tileColors()) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Названия папок", style = MaterialTheme.typography.bodyLarge)
+            val langs = FolderLanguage.entries
+            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                langs.forEachIndexed { index, lang ->
+                    SegmentedButton(
+                        selected = language == lang,
+                        onClick = { vm.updateSettings { it.copy(folderLanguage = lang) } },
+                        shape = SegmentedButtonDefaults.itemShape(index = index, count = langs.size),
+                        icon = {},
+                    ) { Text(if (lang == FolderLanguage.RU) "Русские" else "English", maxLines = 1) }
+                }
+            }
         }
     }
 }

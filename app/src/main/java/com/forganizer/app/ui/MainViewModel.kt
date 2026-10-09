@@ -329,7 +329,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         ArchivePeeker(src).peekAll(result.files) { !scope.isActive }
                     }
                 } else emptyMap()
-                val sum = Clusterer(app.rules, now = System.currentTimeMillis()).summarize(result.files, s.oldDays, peeks)
+                val sum = Clusterer(app.rules, now = System.currentTimeMillis(), language = s.folderLanguage).summarize(result.files, s.oldDays, peeks)
                 summary = sum
                 stats { it.copy(stage = "Поиск дублей", files = result.files.size, skipped = result.skipped, clusters = sum.clusters.size, archives = peeks.size) }
                 val dups = withContext(Dispatchers.IO) {
@@ -360,7 +360,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         stats { it.copy(stage = "Классификация файлов") }
         try {
             if (sum.objects.isNotEmpty()) app.api.warmUp()
-            val res = AiPlanner(app.api).plan(sum, existing, s.allowExisting) { done, total ->
+            val res = AiPlanner(app.api).plan(sum, existing, s.allowExisting, s.folderLanguage) { done, total ->
                 stats { it.copy(aiDone = done, aiTotal = total) }
             }
             val partial = if (res.failedBatches > 0) {
@@ -393,7 +393,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun showPlan(plan: OrganizePlan, aiEmpty: Boolean, extraNote: String? = null) {
-        val s = PlanSession(plan, _state.value.settings.allowExisting)
+        val s = PlanSession(plan, _state.value.settings.allowExisting, folderLanguage = _state.value.settings.folderLanguage)
         session = s
         planId = UUID.randomUUID().toString()
         persistVersion(s.versions.last(), "")
@@ -554,6 +554,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val snap = PlanSnapshot.decode(e.snapshot)
                 val checked = withContext(Dispatchers.IO) { Staleness.check(snap.plan, src) }
                 val s = PlanSession.restore(snap)
+                s.folderLanguage = _state.value.settings.folderLanguage
                 s.replacePlan(checked)
                 session = s
                 planId = info.id
